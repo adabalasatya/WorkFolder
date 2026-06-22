@@ -48,11 +48,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const finishOAuthRedirect = async () => {
       if (typeof window === "undefined") return;
       const params = new URLSearchParams(window.location.search);
+      const code = params.get("code");
       const hasOAuthParams =
-        params.has("code") || params.has("error") || params.has("error_description");
-      if (params.has("code")) {
+        !!code || params.has("error") || params.has("error_description");
+      if (code) {
         try {
-          await sb.auth.exchangeCodeForSession(window.location.search);
+          // exchangeCodeForSession expects the raw code value, not the query.
+          await sb.auth.exchangeCodeForSession(code);
         } catch {
           // Fall through — getSession() below resolves the real state.
         }
