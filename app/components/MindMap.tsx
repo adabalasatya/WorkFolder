@@ -10,11 +10,11 @@ export default function MindMap() {
   const H = 900;
   const cx = W / 2;
   const cy = H / 2;
-  const centerR = 38;
-  const folderR = 26;
+  const centerR = 42;
+  const folderR = 34;
   const fileR = 12;
-  const orbitFolder = 260;
-  const orbitFile = 130;
+  const orbitFolder = 280;
+  const orbitFile = 150;
 
   const nodes = useMemo(() => {
     const folders = state.folders;
@@ -88,7 +88,7 @@ export default function MindMap() {
         {/* File nodes */}
         {nodes.map(({ folder, fileNodes }) =>
           fileNodes.map(({ file, x, y, fileAngle }) => {
-            const labelOffset = 22;
+            const labelOffset = 26;
             const lx = x + labelOffset * Math.cos(fileAngle);
             const ly = y + labelOffset * Math.sin(fileAngle);
             const anchor =
@@ -165,45 +165,58 @@ export default function MindMap() {
         )}
 
         {/* Folder bubbles */}
-        {nodes.map(({ folder, x, y }) => (
-          <g
-            key={`f-${folder.id}`}
-            className="cursor-pointer"
-            onClick={() =>
-              dispatch({
-                type: "SET_VIEW",
-                payload: { view: "folder", folderId: folder.id },
-              })
-            }
-          >
-            <circle
-              cx={x}
-              cy={y}
-              r={folderR + 4}
-              fill={folder.color}
-              opacity={0.12}
-            />
-            <circle
-              cx={x}
-              cy={y}
-              r={folderR}
-              fill="var(--surface)"
-              stroke={folder.color}
-              strokeWidth={2.5}
-            />
-            <text
-              x={x}
-              y={y + 4}
-              textAnchor="middle"
-              fontSize={11}
-              fontWeight={600}
-              fill="var(--foreground)"
-              style={{ pointerEvents: "none" }}
+        {nodes.map(({ folder, x, y }) => {
+          const lines = wrapLabel(folder.name, 11);
+          const longest = Math.max(...lines.map((l) => l.length));
+          // Auto-shrink font for long names so they fit inside the bubble.
+          const fontSize = longest <= 10 ? 11 : longest <= 13 ? 10 : 9;
+          const lineHeight = fontSize + 2;
+          const totalH = (lines.length - 1) * lineHeight;
+          return (
+            <g
+              key={`f-${folder.id}`}
+              className="cursor-pointer"
+              onClick={() =>
+                dispatch({
+                  type: "SET_VIEW",
+                  payload: { view: "folder", folderId: folder.id },
+                })
+              }
             >
-              {truncate(folder.name, 12)}
-            </text>
-          </g>
-        ))}
+              <circle
+                cx={x}
+                cy={y}
+                r={folderR + 4}
+                fill={folder.color}
+                opacity={0.12}
+              />
+              <circle
+                cx={x}
+                cy={y}
+                r={folderR}
+                fill="var(--surface)"
+                stroke={folder.color}
+                strokeWidth={2.5}
+              />
+              <text
+                x={x}
+                y={y - totalH / 2}
+                textAnchor="middle"
+                dominantBaseline="middle"
+                fontSize={fontSize}
+                fontWeight={600}
+                fill="var(--foreground)"
+                style={{ pointerEvents: "none" }}
+              >
+                {lines.map((line, i) => (
+                  <tspan key={i} x={x} dy={i === 0 ? 0 : lineHeight}>
+                    {line}
+                  </tspan>
+                ))}
+              </text>
+            </g>
+          );
+        })}
 
         {/* Center node */}
         <g>
@@ -240,4 +253,26 @@ export default function MindMap() {
 
 function truncate(s: string, n: number) {
   return s.length > n ? s.slice(0, n - 1) + "…" : s;
+}
+
+function wrapLabel(name: string, maxLen: number): string[] {
+  const trimmed = name.trim();
+  if (trimmed.length <= maxLen) return [trimmed];
+  const words = trimmed.split(/\s+/);
+  if (words.length === 1) return [trimmed];
+  let bestSplit = 1;
+  let bestDiff = Infinity;
+  for (let i = 1; i < words.length; i++) {
+    const a = words.slice(0, i).join(" ").length;
+    const b = words.slice(i).join(" ").length;
+    const diff = Math.abs(a - b);
+    if (diff < bestDiff) {
+      bestDiff = diff;
+      bestSplit = i;
+    }
+  }
+  return [
+    words.slice(0, bestSplit).join(" "),
+    words.slice(bestSplit).join(" "),
+  ];
 }

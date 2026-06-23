@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   selectFolderProgress,
   selectOverallStats,
@@ -15,6 +15,8 @@ import {
   ListIcon,
   LogOutIcon,
   SearchIcon,
+  SettingsIcon,
+  TrashIcon,
 } from "./icons";
 import ContextMenu, { type MenuItem } from "./ContextMenu";
 
@@ -29,6 +31,29 @@ export default function Sidebar() {
     y: number;
     items: MenuItem[];
   } | null>(null);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const settingsRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    if (!settingsOpen) return;
+    const onClickAway = (e: MouseEvent) => {
+      if (
+        settingsRef.current &&
+        !settingsRef.current.contains(e.target as Node)
+      ) {
+        setSettingsOpen(false);
+      }
+    };
+    const onEsc = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setSettingsOpen(false);
+    };
+    document.addEventListener("mousedown", onClickAway);
+    document.addEventListener("keydown", onEsc);
+    return () => {
+      document.removeEventListener("mousedown", onClickAway);
+      document.removeEventListener("keydown", onEsc);
+    };
+  }, [settingsOpen]);
 
   useEffect(() => {
     if (state.currentFolderId) {
@@ -333,8 +358,11 @@ export default function Sidebar() {
       )}
 
       {/* Bottom user card */}
-      <div className="mt-2 -mx-1 px-3 py-3 border-t border-[var(--border)] flex items-center gap-3">
-        <div className="size-10 rounded-full bg-gradient-to-br from-[var(--accent)] to-purple-500 grid place-items-center text-white font-semibold shrink-0">
+      <div
+        ref={settingsRef}
+        className="relative mt-2 -mx-1 px-3 py-3 border-t border-[var(--border)] flex items-center gap-3"
+      >
+        <div className="size-10 rounded-full bg-[var(--accent)] grid place-items-center text-white font-semibold shrink-0">
           {userInitial}
         </div>
         <div className="leading-tight min-w-0 flex-1">
@@ -347,15 +375,66 @@ export default function Sidebar() {
         </div>
         {user && (
           <button
-            onClick={() => {
-              if (confirm("Sign out of NodesMap?")) signOut();
-            }}
-            className="shrink-0 p-2 rounded-lg border border-[var(--border)] text-[var(--muted)] hover:text-[var(--danger)] hover:border-[var(--danger)]/40 transition"
-            aria-label="Sign out"
-            title="Sign out"
+            onClick={() => setSettingsOpen((v) => !v)}
+            className={`shrink-0 p-2 rounded-lg border transition ${
+              settingsOpen
+                ? "border-[var(--accent)] text-[var(--accent)]"
+                : "border-[var(--border)] text-[var(--muted)] hover:text-[var(--foreground)]"
+            }`}
+            aria-label="Account settings"
+            aria-expanded={settingsOpen}
+            title="Account settings"
           >
-            <LogOutIcon size={14} />
+            <SettingsIcon size={14} />
           </button>
+        )}
+
+        {settingsOpen && user && (
+          <div className="absolute bottom-full left-3 right-3 mb-2 rounded-xl border border-[var(--border)] bg-[var(--surface)] shadow-lg p-1.5 z-20">
+            <div className="flex items-center gap-2.5 px-2 py-2">
+              <div className="size-8 rounded-full bg-[var(--accent)] grid place-items-center text-white text-xs font-semibold shrink-0">
+                {userInitial}
+              </div>
+              <div className="text-sm font-medium truncate capitalize">
+                {userLabel}
+              </div>
+            </div>
+            <div className="h-px bg-[var(--border)] my-1" />
+            <button
+              onClick={() => {
+                setSettingsOpen(false);
+                const ok = confirm(
+                  "⚠ Warning: Delete your account?\n\n" +
+                    "This will permanently delete EVERYTHING:\n" +
+                    "• All your folders\n" +
+                    "• All your notes\n" +
+                    "• Your progress and account data\n\n" +
+                    "This action cannot be undone. Are you absolutely sure?"
+                );
+                if (ok) {
+                  alert(
+                    "⚠ Account deletion is not available yet.\n\n" +
+                      "Please email support@appspace.co.in to request " +
+                      "permanent deletion of your account and all data."
+                  );
+                }
+              }}
+              className="w-full flex items-center gap-2.5 px-2 py-2 rounded-lg text-sm text-[var(--danger)] hover:bg-[var(--surface-2)] transition"
+            >
+              <TrashIcon size={14} />
+              Delete account
+            </button>
+            <button
+              onClick={() => {
+                setSettingsOpen(false);
+                if (confirm("Sign out of NodesMap?")) signOut();
+              }}
+              className="w-full flex items-center gap-2.5 px-2 py-2 rounded-lg text-sm text-[var(--foreground)] hover:bg-[var(--surface-2)] transition"
+            >
+              <LogOutIcon size={14} />
+              Logout
+            </button>
+          </div>
         )}
       </div>
 
