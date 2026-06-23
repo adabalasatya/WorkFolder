@@ -23,6 +23,7 @@ export default function Editor() {
   const folder = state.folders.find((f) => f.id === state.currentFolderId);
   const editorRef = useRef<HTMLDivElement>(null);
   const lastWrittenContent = useRef<string>("");
+  const loadedFileId = useRef<string | null>(null);
 
   const initialHtml = useMemo(() => {
     const content = file?.content ?? "";
@@ -32,15 +33,16 @@ export default function Editor() {
     return renderMarkdown(content);
   }, [file?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Mount/swap document content when the active file changes.
+  // Mount/swap document content only when the active file actually changes.
+  // Resetting innerHTML on every keystroke wipes the caret and typed text.
   useEffect(() => {
     if (!editorRef.current || !file) return;
-    if (editorRef.current.innerHTML !== initialHtml) {
-      editorRef.current.innerHTML = initialHtml;
-      lastWrittenContent.current = initialHtml;
-    }
+    if (loadedFileId.current === file.id) return;
+    loadedFileId.current = file.id;
+    editorRef.current.innerHTML = initialHtml;
+    lastWrittenContent.current = initialHtml;
     editorRef.current.focus();
-  }, [file?.id, initialHtml, file]);
+  }, [file, initialHtml]);
 
   const flush = useCallback(() => {
     const el = editorRef.current;
