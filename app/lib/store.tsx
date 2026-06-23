@@ -75,7 +75,10 @@ export type SyncStatus =
 export type Action =
   | { type: "HYDRATE"; payload: AppState }
   | { type: "MERGE_REMOTE"; payload: { folders: Folder[]; files: NoteFile[] } }
-  | { type: "ADD_FOLDER"; payload: { name: string; color?: string } }
+  | {
+      type: "ADD_FOLDER";
+      payload: { name: string; color?: string; parentId?: string | null };
+    }
   | { type: "RENAME_FOLDER"; payload: { id: string; name: string } }
   | { type: "DELETE_FOLDER"; payload: { id: string } }
   | { type: "ADD_FILE"; payload: { folderId: string; title: string } }
@@ -155,14 +158,19 @@ function reducer(state: AppState, action: Action): AppState {
       };
 
     case "ADD_FOLDER": {
+      const parentId = action.payload.parentId ?? null;
       const color =
         action.payload.color ||
-        FOLDER_COLORS[state.folders.length % FOLDER_COLORS.length];
+        (parentId
+          ? state.folders.find((f) => f.id === parentId)?.color ||
+            FOLDER_COLORS[state.folders.length % FOLDER_COLORS.length]
+          : FOLDER_COLORS[state.folders.length % FOLDER_COLORS.length]);
       const folder: Folder = {
         id: newId(),
         name: action.payload.name.trim() || "Untitled",
         color,
         createdAt: Date.now(),
+        parentId,
       };
       return { ...state, folders: [...state.folders, folder] };
     }
@@ -177,18 +185,26 @@ function reducer(state: AppState, action: Action): AppState {
         ),
       };
 
-    case "DELETE_FOLDER":
+    case "DELETE_FOLDER": {
+      const toDelete = new Set<string>();
+      const collect = (id: string) => {
+        if (toDelete.has(id)) return;
+        toDelete.add(id);
+        state.folders
+          .filter((f) => f.parentId === id)
+          .forEach((c) => collect(c.id));
+      };
+      collect(action.payload.id);
+      const currentRemoved =
+        state.currentFolderId !== null && toDelete.has(state.currentFolderId);
       return {
         ...state,
-        folders: state.folders.filter((f) => f.id !== action.payload.id),
-        files: state.files.filter((f) => f.folderId !== action.payload.id),
-        currentFolderId:
-          state.currentFolderId === action.payload.id
-            ? null
-            : state.currentFolderId,
-        view:
-          state.currentFolderId === action.payload.id ? "dashboard" : state.view,
+        folders: state.folders.filter((f) => !toDelete.has(f.id)),
+        files: state.files.filter((f) => !toDelete.has(f.folderId)),
+        currentFolderId: currentRemoved ? null : state.currentFolderId,
+        view: currentRemoved ? "dashboard" : state.view,
       };
+    }
 
     case "ADD_FILE": {
       const file: NoteFile = {
@@ -416,7 +432,12 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
 
     currFolders.forEach((f) => {
       const prev = synced.folders.get(f.id);
-      if (!prev || prev.name !== f.name || prev.color !== f.color)
+      if (
+        !prev ||
+        prev.name !== f.name ||
+        prev.color !== f.color ||
+        (prev.parentId ?? null) !== (f.parentId ?? null)
+      )
         tasks.push(upsertFolder(f));
     });
     synced.folders.forEach((_, id) => {
@@ -481,6 +502,29 @@ export function useStore() {
 
 export function selectFolderProgress(state: AppState, folderId: string) {
   const files = state.files.filter((f) => f.folderId === folderId);
+  const done = files.filter((f) => f.isCompleted).length;
+  const pct = files.length ? Math.round((done / files.length) * 100) : 0;
+  return { total: files.length, done, pct };
+}
+
+export function selectDescendantFolderIds(
+  state: AppState,
+  folderId: string
+): string[] {
+  const out: string[] = [];
+  const walk = (id: string) => {
+    out.push(id);
+    state.folders
+      .filter((f) => f.parentId === id)
+      .forEach((c) => walk(c.id));
+  };
+  walk(folderId);
+  return out;
+}
+
+export function selectFolderProgressDeep(state: AppState, folderId: string) {
+  const ids = new Set(selectDescendantFolderIds(state, folderId));
+  const files = state.files.filter((f) => ids.has(f.folderId));
   const done = files.filter((f) => f.isCompleted).length;
   const pct = files.length ? Math.round((done / files.length) * 100) : 0;
   return { total: files.length, done, pct };

@@ -47,7 +47,7 @@ export async function fetchFolders(): Promise<Folder[]> {
   if (!userId) return [];
   const { data, error } = await getSupabase()
     .from("folders")
-    .select("id,name,color,created_at")
+    .select("id,name,color,created_at,parent_id")
     .eq("user_id", userId)
     .order("created_at", { ascending: true });
   if (error) throw error;
@@ -56,6 +56,7 @@ export async function fetchFolders(): Promise<Folder[]> {
     name: r.name as string,
     color: r.color as string,
     createdAt: new Date(r.created_at as string).getTime(),
+    parentId: (r.parent_id as string | null) ?? null,
   }));
 }
 
@@ -86,6 +87,7 @@ export async function upsertFolder(folder: Folder) {
     user_id: userId,
     name: folder.name,
     color: folder.color,
+    parent_id: folder.parentId ?? null,
     created_at: new Date(folder.createdAt).toISOString(),
   });
   if (error) throw error;

@@ -3,6 +3,7 @@ export interface Folder {
   name: string;
   color: string;
   createdAt: number;
+  parentId?: string | null;
 }
 
 export interface NoteFile {

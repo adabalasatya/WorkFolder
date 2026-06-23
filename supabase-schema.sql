@@ -12,8 +12,12 @@ create table if not exists public.folders (
   user_id     uuid not null references auth.users(id) on delete cascade,
   name        text not null,
   color       text not null default '#3b82f6',
+  parent_id   uuid references public.folders(id) on delete cascade,
   created_at  timestamptz not null default now()
 );
+
+alter table public.folders
+  add column if not exists parent_id uuid references public.folders(id) on delete cascade;
 
 create table if not exists public.files (
   id            uuid primary key default gen_random_uuid(),

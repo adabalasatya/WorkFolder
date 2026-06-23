@@ -2,12 +2,15 @@
 
 import { useEffect, useRef, useState } from "react";
 import {
-  selectFolderProgress,
+  selectFolderProgressDeep,
   selectOverallStats,
   useStore,
 } from "../lib/store";
+import type { Folder } from "../lib/types";
 import { useAuth } from "../lib/auth";
 import {
+  ChevronDownIcon,
+  ChevronRightIcon,
   FileIcon,
   FolderIcon,
   FolderPlusIcon,
@@ -16,6 +19,8 @@ import {
   LogOutIcon,
   SearchIcon,
   SettingsIcon,
+  SidebarCloseIcon,
+  SidebarOpenIcon,
   TrashIcon,
 } from "./icons";
 import ContextMenu, { type MenuItem } from "./ContextMenu";
@@ -23,9 +28,12 @@ import ContextMenu, { type MenuItem } from "./ContextMenu";
 export default function Sidebar() {
   const { state, dispatch, sync, syncError, retrySync } = useStore();
   const { user, signOut } = useAuth();
-  const [creating, setCreating] = useState(false);
+  const [creating, setCreating] = useState<null | { parentId: string | null }>(
+    null
+  );
   const [newName, setNewName] = useState("");
   const [open, setOpen] = useState<Record<string, boolean>>({});
+  const [collapsed, setCollapsed] = useState(false);
   const [menu, setMenu] = useState<{
     x: number;
     y: number;
@@ -57,24 +65,46 @@ export default function Sidebar() {
 
   useEffect(() => {
     if (state.currentFolderId) {
-      setOpen((o) => ({ ...o, [state.currentFolderId!]: true }));
+      const ancestors: string[] = [];
+      let id: string | null | undefined = state.currentFolderId;
+      while (id) {
+        ancestors.push(id);
+        const f = state.folders.find((x) => x.id === id);
+        id = f?.parentId ?? null;
+      }
+      setOpen((o) => {
+        const next = { ...o };
+        ancestors.forEach((a) => (next[a] = true));
+        return next;
+      });
     }
-  }, [state.currentFolderId]);
+  }, [state.currentFolderId, state.folders]);
 
   const search = state.search.toLowerCase();
-  const visibleFolders = state.folders.filter((f) =>
-    !search ? true : f.name.toLowerCase().includes(search)
-  );
   const overall = selectOverallStats(state);
 
+  const startCreate = () => {
+    const parentId =
+      state.view === "folder" && state.currentFolderId
+        ? state.currentFolderId
+        : null;
+    if (parentId) setOpen((o) => ({ ...o, [parentId]: true }));
+    setCreating({ parentId });
+    setNewName("");
+  };
+
   const submitNewFolder = () => {
+    if (!creating) return;
     if (!newName.trim()) {
-      setCreating(false);
+      setCreating(null);
       return;
     }
-    dispatch({ type: "ADD_FOLDER", payload: { name: newName } });
+    dispatch({
+      type: "ADD_FOLDER",
+      payload: { name: newName, parentId: creating.parentId },
+    });
     setNewName("");
-    setCreating(false);
+    setCreating(null);
   };
 
   const openContext = (e: React.MouseEvent, items: MenuItem[]) => {
@@ -86,6 +116,266 @@ export default function Sidebar() {
     ? user.email.split("@")[0].replace(/[._-]/g, " ")
     : "Workspace";
   const userInitial = (user?.email ?? "V")[0].toUpperCase();
+
+  // Build child lookup once.
+  const childrenOf = (parentId: string | null) =>
+    state.folders.filter((f) => (f.parentId ?? null) === parentId);
+
+  const folderMatches = (folder: Folder, term: string): boolean => {
+    if (!term) return true;
+    if (folder.name.toLowerCase().includes(term)) return true;
+    const files = state.files.filter((f) => f.folderId === folder.id);
+    if (files.some((f) => f.title.toLowerCase().includes(term))) return true;
+    return childrenOf(folder.id).some((c) => folderMatches(c, term));
+  };
+
+  if (collapsed) {
+    return (
+      <aside className="h-screen w-14 shrink-0 flex flex-col items-center border-r border-[var(--border)] bg-[var(--surface)] py-3">
+        <button
+          onClick={() => setCollapsed(false)}
+          aria-label="Expand sidebar"
+          title="Expand sidebar"
+          className="p-2 rounded-lg border border-[var(--border)] hover:bg-[var(--surface-2)] text-[var(--muted)] hover:text-[var(--foreground)] transition"
+        >
+          <SidebarOpenIcon size={16} />
+        </button>
+        <button
+          onClick={() => {
+            setCollapsed(false);
+            startCreate();
+          }}
+          aria-label="New folder"
+          title="New folder"
+          className="mt-2 p-2 rounded-lg border border-[var(--border)] hover:bg-[var(--surface-2)] text-[var(--muted)] hover:text-[var(--foreground)] transition"
+        >
+          <FolderPlusIcon size={16} />
+        </button>
+        <div className="mt-auto size-9 rounded-full bg-[var(--accent)] grid place-items-center text-white text-sm font-semibold">
+          {userInitial}
+        </div>
+      </aside>
+    );
+  }
+
+  const renderFolder = (folder: Folder, depth: number) => {
+    if (!folderMatches(folder, search)) return null;
+    const folderFiles = state.files.filter((f) => f.folderId === folder.id);
+    const visibleFiles = folderFiles.filter((f) =>
+      !search ? true : f.title.toLowerCase().includes(search)
+    );
+    const subFolders = childrenOf(folder.id);
+    const hasChildren = subFolders.length > 0 || folderFiles.length > 0;
+    const isOpen = open[folder.id] ?? false;
+    const isSelected =
+      state.currentFolderId === folder.id && state.view !== "dashboard";
+    const { total, done } = selectFolderProgressDeep(state, folder.id);
+    return (
+      <div key={folder.id} className="mb-0.5">
+        <div
+          className={`group flex items-center gap-1.5 rounded-lg px-2 py-2 cursor-pointer transition ${
+            isSelected
+              ? "bg-[var(--surface-2)] text-[var(--foreground)]"
+              : "hover:bg-[var(--surface-2)]"
+          }`}
+          style={{ paddingLeft: 8 + depth * 14 }}
+          onClick={() => {
+            setOpen((o) => ({ ...o, [folder.id]: true }));
+            dispatch({
+              type: "SET_VIEW",
+              payload: {
+                view: "folder",
+                folderId: folder.id,
+                fileId: null,
+              },
+            });
+          }}
+          onContextMenu={(e) =>
+            openContext(e, [
+              {
+                label: isOpen ? "Collapse" : "Expand",
+                onSelect: () =>
+                  setOpen((o) => ({ ...o, [folder.id]: !isOpen })),
+              },
+              {
+                label: "New subfolder",
+                onSelect: () => {
+                  setOpen((o) => ({ ...o, [folder.id]: true }));
+                  setCreating({ parentId: folder.id });
+                  setNewName("");
+                },
+              },
+              {
+                label: "Rename",
+                onSelect: () => {
+                  const name = prompt("Rename folder", folder.name);
+                  if (name)
+                    dispatch({
+                      type: "RENAME_FOLDER",
+                      payload: { id: folder.id, name },
+                    });
+                },
+              },
+              {
+                label: "Delete",
+                danger: true,
+                onSelect: () => {
+                  if (
+                    confirm(
+                      `Delete folder "${folder.name}" and all its contents?`
+                    )
+                  )
+                    dispatch({
+                      type: "DELETE_FOLDER",
+                      payload: { id: folder.id },
+                    });
+                },
+              },
+            ])
+          }
+        >
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              setOpen((o) => ({ ...o, [folder.id]: !isOpen }));
+            }}
+            className={`shrink-0 grid place-items-center w-4 h-4 text-[var(--muted)] ${
+              hasChildren ? "" : "opacity-0 pointer-events-none"
+            }`}
+            aria-label={isOpen ? "Collapse" : "Expand"}
+          >
+            {isOpen ? (
+              <ChevronDownIcon size={12} />
+            ) : (
+              <ChevronRightIcon size={12} />
+            )}
+          </button>
+          <FolderIcon size={16} style={{ color: folder.color }} />
+          <span
+            className={`text-sm truncate flex-1 ${
+              isSelected ? "font-medium" : ""
+            }`}
+            style={isSelected ? { color: folder.color } : undefined}
+          >
+            {folder.name}
+          </span>
+          <span className="text-[11px] text-[var(--muted)] tabular-nums">
+            {done}/{total}
+          </span>
+        </div>
+        {isOpen && (
+          <>
+            {subFolders.map((sub) => renderFolder(sub, depth + 1))}
+            {creating && creating.parentId === folder.id && (
+              <input
+                autoFocus
+                value={newName}
+                onChange={(e) => setNewName(e.target.value)}
+                onBlur={submitNewFolder}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") submitNewFolder();
+                  if (e.key === "Escape") {
+                    setCreating(null);
+                    setNewName("");
+                  }
+                }}
+                placeholder="Subfolder name"
+                style={{ marginLeft: 22 + (depth + 1) * 14 }}
+                className="mt-1 bg-[var(--surface-2)] rounded-lg px-2 py-1.5 text-xs outline-none focus:ring-2 focus:ring-[var(--accent)]"
+              />
+            )}
+            {visibleFiles.map((file) => {
+              const fileSelected = state.currentFileId === file.id;
+              return (
+                <div
+                  key={file.id}
+                  onClick={() =>
+                    dispatch({
+                      type: "SET_VIEW",
+                      payload: {
+                        view: "editor",
+                        folderId: folder.id,
+                        fileId: file.id,
+                      },
+                    })
+                  }
+                  onContextMenu={(e) =>
+                    openContext(e, [
+                      {
+                        label: file.isCompleted
+                          ? "Mark not done"
+                          : "Mark as done",
+                        onSelect: () =>
+                          dispatch({
+                            type: "TOGGLE_FILE_DONE",
+                            payload: { id: file.id },
+                          }),
+                      },
+                      {
+                        label: "Rename",
+                        onSelect: () => {
+                          const title = prompt("Rename note", file.title);
+                          if (title)
+                            dispatch({
+                              type: "RENAME_FILE",
+                              payload: { id: file.id, title },
+                            });
+                        },
+                      },
+                      {
+                        label: "Delete",
+                        danger: true,
+                        onSelect: () => {
+                          if (confirm(`Delete note "${file.title}"?`))
+                            dispatch({
+                              type: "DELETE_FILE",
+                              payload: { id: file.id },
+                            });
+                        },
+                      },
+                    ])
+                  }
+                  className={`flex items-center gap-2 rounded-md px-2 py-1.5 cursor-pointer transition ${
+                    fileSelected
+                      ? "text-[var(--foreground)]"
+                      : "hover:bg-[var(--surface-2)]"
+                  }`}
+                  style={
+                    fileSelected
+                      ? { color: folder.color, paddingLeft: 28 + depth * 14 }
+                      : { paddingLeft: 28 + depth * 14 }
+                  }
+                >
+                  {file.isCompleted ? (
+                    <CheckBadge color={folder.color} />
+                  ) : (
+                    <FileIcon size={12} className="text-[var(--muted)]" />
+                  )}
+                  <span
+                    className={`text-xs truncate ${
+                      file.isCompleted
+                        ? "line-through text-[var(--muted)]"
+                        : ""
+                    }`}
+                  >
+                    {file.title}
+                  </span>
+                </div>
+              );
+            })}
+          </>
+        )}
+      </div>
+    );
+  };
+
+  const rootFolders = childrenOf(null);
+  const visibleRoots = rootFolders.filter((f) => folderMatches(f, search));
+
+  const newFolderLabel =
+    state.view === "folder" && state.currentFolderId
+      ? "+ New Subfolder"
+      : "+ New Folder";
 
   return (
     <aside className="h-screen w-72 shrink-0 flex flex-col border-r border-[var(--border)] bg-[var(--surface)] p-3">
@@ -116,25 +406,25 @@ export default function Sidebar() {
           </button>
         </div>
         <button
-          onClick={() => setCreating(true)}
-          aria-label="New folder"
+          onClick={() => setCollapsed(true)}
+          aria-label="Collapse sidebar"
           className="ml-auto p-1.5 rounded-lg border border-[var(--border)] hover:bg-[var(--surface-2)] text-[var(--muted)] hover:text-[var(--foreground)] transition"
-          title="New folder"
+          title="Collapse sidebar"
         >
-          <FolderPlusIcon size={14} />
+          <SidebarCloseIcon size={14} />
         </button>
       </div>
 
       {/* + New Folder pill */}
       <button
-        onClick={() => setCreating(true)}
+        onClick={startCreate}
         className="mt-3 w-full border border-[var(--border)] rounded-xl py-2.5 text-sm font-medium hover:bg-[var(--surface-2)] transition"
       >
-        + New Folder
+        {newFolderLabel}
       </button>
 
-      {/* Inline folder name input */}
-      {creating && (
+      {/* Inline folder name input (root) */}
+      {creating && creating.parentId === null && (
         <input
           autoFocus
           value={newName}
@@ -143,7 +433,7 @@ export default function Sidebar() {
           onKeyDown={(e) => {
             if (e.key === "Enter") submitNewFolder();
             if (e.key === "Escape") {
-              setCreating(false);
+              setCreating(null);
               setNewName("");
             }
           }}
@@ -170,171 +460,12 @@ export default function Sidebar() {
 
       {/* Folder tree */}
       <div className="mt-4 flex-1 overflow-y-auto -mx-1 px-1">
-        {visibleFolders.length === 0 && (
+        {visibleRoots.length === 0 && (
           <div className="px-2 py-3 text-xs text-[var(--muted)]">
             No folders yet
           </div>
         )}
-        {visibleFolders.map((folder) => {
-          const folderFiles = state.files.filter(
-            (f) => f.folderId === folder.id
-          );
-          const visibleFiles = folderFiles.filter((f) =>
-            !search ? true : f.title.toLowerCase().includes(search)
-          );
-          const isOpen = open[folder.id] ?? false;
-          const isSelected =
-            state.currentFolderId === folder.id && state.view !== "dashboard";
-          const { total, done } = selectFolderProgress(state, folder.id);
-          return (
-            <div key={folder.id} className="mb-0.5">
-              <div
-                className={`group flex items-center gap-2 rounded-lg px-2 py-2 cursor-pointer transition ${
-                  isSelected
-                    ? "bg-[var(--surface-2)] text-[var(--foreground)]"
-                    : "hover:bg-[var(--surface-2)]"
-                }`}
-                onClick={() => {
-                  setOpen((o) => ({ ...o, [folder.id]: true }));
-                  dispatch({
-                    type: "SET_VIEW",
-                    payload: {
-                      view: "folder",
-                      folderId: folder.id,
-                      fileId: null,
-                    },
-                  });
-                }}
-                onContextMenu={(e) =>
-                  openContext(e, [
-                    {
-                      label: isOpen ? "Collapse" : "Expand",
-                      onSelect: () =>
-                        setOpen((o) => ({ ...o, [folder.id]: !isOpen })),
-                    },
-                    {
-                      label: "Rename",
-                      onSelect: () => {
-                        const name = prompt("Rename folder", folder.name);
-                        if (name)
-                          dispatch({
-                            type: "RENAME_FOLDER",
-                            payload: { id: folder.id, name },
-                          });
-                      },
-                    },
-                    {
-                      label: "Delete",
-                      danger: true,
-                      onSelect: () => {
-                        if (
-                          confirm(
-                            `Delete folder "${folder.name}" and all its notes?`
-                          )
-                        )
-                          dispatch({
-                            type: "DELETE_FOLDER",
-                            payload: { id: folder.id },
-                          });
-                      },
-                    },
-                  ])
-                }
-              >
-                <FolderIcon size={16} style={{ color: folder.color }} />
-                <span
-                  className={`text-sm truncate flex-1 ${
-                    isSelected ? "font-medium" : ""
-                  }`}
-                  style={isSelected ? { color: folder.color } : undefined}
-                >
-                  {folder.name}
-                </span>
-                <span className="text-[11px] text-[var(--muted)] tabular-nums">
-                  {done}/{total}
-                </span>
-              </div>
-              {isOpen &&
-                visibleFiles.map((file) => {
-                  const fileSelected = state.currentFileId === file.id;
-                  return (
-                    <div
-                      key={file.id}
-                      onClick={() =>
-                        dispatch({
-                          type: "SET_VIEW",
-                          payload: {
-                            view: "editor",
-                            folderId: folder.id,
-                            fileId: file.id,
-                          },
-                        })
-                      }
-                      onContextMenu={(e) =>
-                        openContext(e, [
-                          {
-                            label: file.isCompleted
-                              ? "Mark not done"
-                              : "Mark as done",
-                            onSelect: () =>
-                              dispatch({
-                                type: "TOGGLE_FILE_DONE",
-                                payload: { id: file.id },
-                              }),
-                          },
-                          {
-                            label: "Rename",
-                            onSelect: () => {
-                              const title = prompt("Rename note", file.title);
-                              if (title)
-                                dispatch({
-                                  type: "RENAME_FILE",
-                                  payload: { id: file.id, title },
-                                });
-                            },
-                          },
-                          {
-                            label: "Delete",
-                            danger: true,
-                            onSelect: () => {
-                              if (confirm(`Delete note "${file.title}"?`))
-                                dispatch({
-                                  type: "DELETE_FILE",
-                                  payload: { id: file.id },
-                                });
-                            },
-                          },
-                        ])
-                      }
-                      className={`ml-6 flex items-center gap-2 rounded-md px-2 py-1.5 cursor-pointer transition ${
-                        fileSelected
-                          ? "text-[var(--foreground)]"
-                          : "hover:bg-[var(--surface-2)]"
-                      }`}
-                      style={
-                        fileSelected ? { color: folder.color } : undefined
-                      }
-                    >
-                      {file.isCompleted ? (
-                        <CheckBadge color={folder.color} />
-                      ) : (
-                        <FileIcon size={12} className="text-[var(--muted)]" />
-                      )}
-                      <span
-                        className={`text-xs truncate ${
-                          file.isCompleted
-                            ? "line-through text-[var(--muted)]"
-                            : ""
-                        }`}
-                      >
-                        {file.title}
-                      </span>
-                    </div>
-                  );
-                })}
-            </div>
-          );
-        })}
+        {visibleRoots.map((folder) => renderFolder(folder, 0))}
       </div>
 
       {/* Sync status (compact) */}
