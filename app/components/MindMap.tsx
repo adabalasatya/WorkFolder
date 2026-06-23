@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useStore } from "../lib/store";
 import type { Folder, NoteFile } from "../lib/types";
 import { ChevronLeftIcon } from "./icons";
@@ -12,7 +12,6 @@ type MNode = {
   id: string;
   kind: "folder" | "file";
   label: string;
-  color: string; // subtree color used for ring + edges to children
   folder?: Folder;
   file?: NoteFile;
   children: MNode[];
@@ -21,7 +20,7 @@ type MNode = {
   depth: number;
   _px?: number;
   _py?: number;
-  _ax?: number; // outward angle from parent (radians), used by file labels
+  _ax?: number;
 };
 
 export default function MindMap() {
@@ -77,7 +76,7 @@ export default function MindMap() {
         <div className="text-sm text-[var(--muted)] truncate">
           {selectedFolder
             ? `Mind map · ${selectedFolder.name}`
-            : "Mind map · All folders"}
+            : "Mind map · Home"}
         </div>
       </div>
       <div className="flex-1 min-h-0 overflow-auto">
@@ -87,10 +86,7 @@ export default function MindMap() {
           <div className="flex flex-col gap-8 p-6">
             {rootFolders.map((folder) => (
               <div key={folder.id}>
-                <div
-                  className="text-xs uppercase tracking-[0.15em] mb-2 font-medium"
-                  style={{ color: folder.color }}
-                >
+                <div className="text-xs uppercase tracking-[0.15em] mb-2 font-medium text-[var(--muted)]">
                   {folder.name}
                 </div>
                 <div className="rounded-2xl border border-[var(--border)] bg-[var(--surface)] overflow-hidden">
@@ -115,6 +111,12 @@ function FolderMindMap({
   const { state, dispatch } = useStore();
   const cx = W / 2;
   const cy = H / 2;
+  // Animated reveal — bumps a key when the visible folder changes so the
+  // SVG re-mounts with fresh CSS animations.
+  const [revealKey, setRevealKey] = useState(0);
+  useEffect(() => {
+    setRevealKey((k) => k + 1);
+  }, [folder.id]);
 
   const tree = useMemo(
     () => buildTree(folder, state.folders, state.files),
@@ -129,17 +131,17 @@ function FolderMindMap({
 
   layoutTree(tree, cx, cy, ringRadius);
 
-  const edges: Array<{ from: MNode; to: MNode; color: string }> = [];
+  const edges: Array<{ from: MNode; to: MNode; idx: number; isFile: boolean }> =
+    [];
   walk(tree, (node) => {
-    node.children.forEach((c) => {
-      edges.push({ from: node, to: c, color: c.color });
+    node.children.forEach((c, i) => {
+      edges.push({ from: node, to: c, idx: i, isFile: c.kind === "file" });
     });
   });
 
   const allNodes: MNode[] = [];
   walk(tree, (n) => allNodes.push(n));
 
-  // Bounds → fit viewBox so nothing clips at any depth.
   const pad = 80;
   const minX = Math.min(...allNodes.map((n) => n.x)) - pad;
   const maxX = Math.max(...allNodes.map((n) => n.x)) + pad;
@@ -154,8 +156,9 @@ function FolderMindMap({
 
   return (
     <svg
+      key={revealKey}
       viewBox={`${vbX} ${vbY} ${vbW} ${vbH}`}
-      className={compact ? "w-full" : "w-full h-full"}
+      className={`${compact ? "w-full" : "w-full h-full"} mm-svg`}
       style={
         compact
           ? { maxHeight: 360 }
@@ -163,20 +166,26 @@ function FolderMindMap({
       }
       preserveAspectRatio="xMidYMid meet"
     >
-      {/* Curved edges first so nodes sit on top */}
-      {edges.map((e, i) => (
-        <path
-          key={i}
-          d={curvedPath(e.from, e.to, i)}
-          stroke={e.color}
-          strokeWidth={e.to.kind === "file" ? 1.3 : 1.8}
-          fill="none"
-          opacity={e.to.kind === "file" ? 0.65 : 0.8}
-          strokeLinecap="round"
-        />
-      ))}
+      {edges.map((e, i) => {
+        const d = curvedPath(e.from, e.to, e.idx);
+        const delay = stagger(e.from.depth) + i * 8;
+        return (
+          <path
+            key={i}
+            d={d}
+            className="mm-edge"
+            stroke={e.isFile ? "var(--muted)" : "var(--foreground)"}
+            strokeWidth={e.isFile ? 1 : 1.5}
+            strokeOpacity={e.isFile ? 0.45 : 0.7}
+            fill="none"
+            strokeLinecap="round"
+            style={{
+              animationDelay: `${delay}ms`,
+            }}
+          />
+        );
+      })}
 
-      {/* Non-root nodes */}
       {allNodes.map((n) => {
         if (n === tree) return null;
         if (n.kind === "file" && n.file) {
@@ -185,6 +194,7 @@ function FolderMindMap({
               key={n.id}
               node={n}
               parentFolderId={(n.file as NoteFile).folderId}
+              delay={stagger(n.depth)}
               onOpen={(fid, fileId) =>
                 dispatch({
                   type: "SET_VIEW",
@@ -200,6 +210,7 @@ function FolderMindMap({
               key={n.id}
               node={n}
               isRoot={false}
+              delay={stagger(n.depth)}
               onOpen={(fid) =>
                 dispatch({
                   type: "SET_VIEW",
@@ -212,10 +223,10 @@ function FolderMindMap({
         return null;
       })}
 
-      {/* Root last so it sits above its surrounding halo */}
       <FolderNode
         node={tree}
         isRoot
+        delay={0}
         onOpen={(fid) =>
           dispatch({
             type: "SET_VIEW",
@@ -227,55 +238,80 @@ function FolderMindMap({
   );
 }
 
-/* ----------------------- Node renderers ----------------------- */
+function stagger(depth: number): number {
+  // ms — earlier rings draw first, deeper rings follow.
+  return depth * 120;
+}
 
 function FolderNode({
   node,
   isRoot,
+  delay,
   onOpen,
 }: {
   node: MNode;
   isRoot: boolean;
+  delay: number;
   onOpen: (id: string) => void;
 }) {
   const r = isRoot ? 50 : Math.max(28, 40 - node.depth * 3);
   const fontSize = isRoot ? 14 : Math.max(9, 12 - Math.max(0, node.depth - 1));
-  const lines = wrapLabel(node.label, isRoot ? 12 : 12);
+  const lines = wrapLabel(node.label, 12);
   const lineHeight = fontSize + 2;
   const totalH = (lines.length - 1) * lineHeight;
+  const stroke = isRoot ? "var(--foreground)" : "var(--foreground)";
+  const fill = isRoot ? "var(--foreground)" : "var(--surface)";
+  const textFill = isRoot ? "var(--surface)" : "var(--foreground)";
   return (
     <g
-      className="cursor-pointer"
+      className="mm-node cursor-pointer"
+      transform={`translate(${node.x} ${node.y})`}
+      style={{
+        // Animate from a stable, in-place state — let the group's CSS run.
+        animationDelay: `${delay}ms`,
+        transformOrigin: `${node.x}px ${node.y}px`,
+        transformBox: "fill-box",
+      }}
       onClick={() => onOpen(node.folder!.id)}
     >
-      {/* glow / halo */}
+      {isRoot && (
+        <circle
+          cx={0}
+          cy={0}
+          r={r + 16}
+          fill="var(--foreground)"
+          opacity={0.08}
+          className="mm-halo"
+        />
+      )}
       <circle
-        cx={node.x}
-        cy={node.y}
-        r={r + (isRoot ? 12 : 7)}
-        fill={node.color}
-        opacity={isRoot ? 0.16 : 0.1}
+        cx={0}
+        cy={0}
+        r={r + (isRoot ? 6 : 4)}
+        fill="var(--foreground)"
+        opacity={isRoot ? 0.1 : 0.05}
       />
       <circle
-        cx={node.x}
-        cy={node.y}
+        cx={0}
+        cy={0}
         r={r}
-        fill={isRoot ? node.color : "var(--surface)"}
-        stroke={node.color}
-        strokeWidth={isRoot ? 2 : 2.4}
+        fill={fill}
+        stroke={stroke}
+        strokeWidth={isRoot ? 2 : 1.8}
+        className="mm-circle"
       />
       <text
-        x={node.x}
-        y={node.y - totalH / 2 + 1}
+        x={0}
+        y={-totalH / 2 + 1}
         textAnchor="middle"
         dominantBaseline="middle"
         fontSize={fontSize}
         fontWeight={isRoot ? 700 : 600}
-        fill={isRoot ? "#fff" : "var(--foreground)"}
+        fill={textFill}
         style={{ pointerEvents: "none" }}
       >
         {lines.map((line, i) => (
-          <tspan key={i} x={node.x} dy={i === 0 ? 0 : lineHeight}>
+          <tspan key={i} x={0} dy={i === 0 ? 0 : lineHeight}>
             {line}
           </tspan>
         ))}
@@ -287,46 +323,35 @@ function FolderNode({
 function FileNode({
   node,
   parentFolderId,
+  delay,
   onOpen,
 }: {
   node: MNode;
   parentFolderId: string;
+  delay: number;
   onOpen: (folderId: string, fileId: string) => void;
 }) {
-  const fileR = 13;
-  // Outward direction from parent (cached as _ax during layout).
+  const fileR = 12;
   const angle = node._ax ?? 0;
   const labelOffset = 22;
-  const lx = node.x + labelOffset * Math.cos(angle);
-  const ly = node.y + labelOffset * Math.sin(angle);
+  const lx = labelOffset * Math.cos(angle);
+  const ly = labelOffset * Math.sin(angle);
   const dxn = Math.cos(angle);
   const anchor = dxn > 0.3 ? "start" : dxn < -0.3 ? "end" : "middle";
   const isDone = !!node.file?.isCompleted;
   return (
     <g
-      className="cursor-pointer"
+      className="mm-node cursor-pointer"
+      transform={`translate(${node.x} ${node.y})`}
+      style={{ animationDelay: `${delay}ms` }}
       onClick={() => onOpen(parentFolderId, node.file!.id)}
     >
       {isDone ? (
         <>
-          <circle
-            cx={node.x}
-            cy={node.y}
-            r={fileR}
-            fill={node.color}
-            opacity={0.25}
-          />
-          <circle
-            cx={node.x}
-            cy={node.y}
-            r={fileR}
-            fill="none"
-            stroke={node.color}
-            strokeWidth={2}
-          />
+          <circle cx={0} cy={0} r={fileR} fill="var(--foreground)" />
           <path
-            d={`M ${node.x - 4} ${node.y} L ${node.x - 1} ${node.y + 3.2} L ${node.x + 5} ${node.y - 3.5}`}
-            stroke={node.color}
+            d={`M -4 0 L -1 3.2 L 5 -3.5`}
+            stroke="var(--surface)"
             strokeWidth={2}
             fill="none"
             strokeLinecap="round"
@@ -335,13 +360,13 @@ function FileNode({
         </>
       ) : (
         <circle
-          cx={node.x}
-          cy={node.y}
+          cx={0}
+          cy={0}
           r={fileR}
           fill="var(--surface)"
-          stroke={node.color}
-          strokeWidth={1.8}
-          opacity={0.85}
+          stroke="var(--muted)"
+          strokeWidth={1.6}
+          opacity={0.9}
         />
       )}
       <text
@@ -366,32 +391,23 @@ function buildTree(
   folders: Folder[],
   files: NoteFile[]
 ): MNode {
-  const buildFolder = (
-    f: Folder,
-    depth: number,
-    inheritedColor: string
-  ): MNode => {
-    // depth 0 = root (use own color); depth 1 = branch root (own color);
-    // depth 2+ = inherit the branch color from the first-level ancestor.
-    const myColor = depth <= 1 ? f.color : inheritedColor;
+  const buildFolder = (f: Folder, depth: number): MNode => {
     const subs = folders.filter((x) => x.parentId === f.id);
     const ff = files.filter((x) => x.folderId === f.id);
     return {
       id: f.id,
       kind: "folder",
       label: f.name,
-      color: myColor,
       folder: f,
       depth,
       x: 0,
       y: 0,
       children: [
-        ...subs.map((s) => buildFolder(s, depth + 1, myColor)),
+        ...subs.map((s) => buildFolder(s, depth + 1)),
         ...ff.map<MNode>((file) => ({
           id: file.id,
           kind: "file",
           label: file.title,
-          color: myColor,
           file,
           depth: depth + 1,
           x: 0,
@@ -401,7 +417,7 @@ function buildTree(
       ],
     };
   };
-  return buildFolder(rootFolder, 0, rootFolder.color);
+  return buildFolder(rootFolder, 0);
 }
 
 function treeDepth(node: MNode): number {
@@ -427,8 +443,6 @@ function layoutTree(
   root.children.forEach((child, i) => {
     const angle = (i / N) * Math.PI * 2 - Math.PI / 2;
     placeNode(child, cx, cy, angle, ringRadius);
-    // Children of a branch fan outward in a sector centered on the outward
-    // direction. Width depends on how many siblings the branch has.
     const baseSpan = Math.min((Math.PI * 2) / Math.max(N, 1) * 1.4, Math.PI);
     layoutChildren(child, angle, baseSpan, ringRadius);
   });
@@ -457,14 +471,11 @@ function layoutChildren(
 ) {
   const N = node.children.length;
   if (N === 0) return;
-  // For a single child, place it slightly outward of the parent's direction
-  // so the line continues fluidly. For many, distribute across the arc.
   const startAngle = outwardAngle - span / 2;
   node.children.forEach((child, i) => {
     const t = N === 1 ? 0.5 : i / (N - 1);
     const angle = startAngle + t * span;
     placeNode(child, node.x, node.y, angle, ringRadius);
-    // Deeper levels: narrower sector, also smaller per-child step.
     const subSpan = Math.min(
       (span / Math.max(N, 1)) * 1.4,
       Math.PI * 0.7
@@ -473,14 +484,10 @@ function layoutChildren(
   });
 }
 
-/* ----------------------- Curved edge path ----------------------- */
-
 function curvedPath(from: MNode, to: MNode, seed: number): string {
   const dx = to.x - from.x;
   const dy = to.y - from.y;
   const len = Math.hypot(dx, dy) || 1;
-  // Perpendicular offset for a gentle, organic curve. Alternate sign per
-  // sibling so adjacent strands don't overlap.
   const sign = seed % 2 === 0 ? 1 : -1;
   const lift = Math.min(40, len * 0.08) * sign;
   const mx = (from.x + to.x) / 2 - (dy / len) * lift;

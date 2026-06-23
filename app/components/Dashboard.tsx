@@ -45,7 +45,6 @@ export default function Dashboard() {
       >
         {folders.map((folder) => {
           const { total, done, pct } = selectFolderProgressDeep(state, folder.id);
-          const tint = `${folder.color}33`;
           if (state.viewMode === "list") {
             return (
               <div
@@ -66,7 +65,7 @@ export default function Dashboard() {
                 }}
                 className="flex items-center gap-3 px-4 py-3 rounded-xl border border-[var(--border)] bg-[var(--surface)] hover:bg-[var(--surface-2)] cursor-pointer transition"
               >
-                <FolderIcon size={18} style={{ color: folder.color }} />
+                <FolderIcon size={18} className="text-[var(--muted)]" />
                 <div className="font-medium">{folder.name}</div>
                 <div className="text-xs text-[var(--muted)]">
                   {done}/{total} done
@@ -74,7 +73,10 @@ export default function Dashboard() {
                 <div className="flex-1 h-1 max-w-[260px] ml-auto rounded-full bg-[var(--surface-2)] overflow-hidden">
                   <div
                     className="h-full rounded-full transition-[width] duration-300"
-                    style={{ width: `${pct}%`, background: folder.color }}
+                    style={{
+                      width: `${pct}%`,
+                      background: "var(--foreground)",
+                    }}
                   />
                 </div>
               </div>
@@ -100,10 +102,7 @@ export default function Dashboard() {
               className="relative text-left rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-6 pb-7 hover:bg-[var(--surface-2)] transition group overflow-hidden"
             >
               <div className="flex flex-col items-center text-center gap-2">
-                <div
-                  className="size-14 rounded-xl grid place-items-center mb-2"
-                  style={{ background: tint, color: folder.color }}
-                >
+                <div className="size-14 rounded-xl grid place-items-center mb-2 bg-[var(--surface-2)] text-[var(--muted)]">
                   <FolderIcon size={28} />
                 </div>
                 <div className="font-semibold">{folder.name}</div>
@@ -114,7 +113,10 @@ export default function Dashboard() {
               <div className="absolute left-0 right-0 bottom-0 h-1 bg-[var(--surface-2)]">
                 <div
                   className="h-full transition-[width] duration-300"
-                  style={{ width: `${pct}%`, background: folder.color }}
+                  style={{
+                    width: `${pct}%`,
+                    background: "var(--foreground)",
+                  }}
                 />
               </div>
             </button>

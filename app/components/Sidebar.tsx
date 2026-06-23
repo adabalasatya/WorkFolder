@@ -284,12 +284,12 @@ export default function Sidebar() {
               <ChevronRightIcon size={12} />
             )}
           </button>
-          <FolderIcon size={16} style={{ color: folder.color }} />
+          <FolderIcon size={16} className="text-[var(--muted)]" />
           <span
             className={`text-sm truncate flex-1 ${
               isSelected ? "font-medium" : ""
             }`}
-            style={isSelected ? { color: folder.color } : undefined}
+            style={undefined}
           >
             {folder.name}
           </span>
@@ -374,14 +374,10 @@ export default function Sidebar() {
                       ? "text-[var(--foreground)]"
                       : "hover:bg-[var(--surface-2)]"
                   }`}
-                  style={
-                    fileSelected
-                      ? { color: folder.color, paddingLeft: 28 + depth * 14 }
-                      : { paddingLeft: 28 + depth * 14 }
-                  }
+                  style={{ paddingLeft: 28 + depth * 14 }}
                 >
                   {file.isCompleted ? (
-                    <CheckBadge color={folder.color} />
+                    <CheckBadge color="var(--foreground)" />
                   ) : (
                     <FileIcon size={12} className="text-[var(--muted)]" />
                   )}

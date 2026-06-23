@@ -635,7 +635,7 @@ export default function Editor() {
 
         <div
           className="h-0.5 w-full rounded-full mt-3"
-          style={{ background: folder.color, opacity: 0.7 }}
+          style={{ background: "var(--border)", opacity: 1 }}
         />
       </div>
 

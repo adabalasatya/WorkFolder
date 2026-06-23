@@ -22,13 +22,6 @@ export interface StreakState {
 
 export type View = "dashboard" | "folder" | "editor" | "progress" | "mindmap";
 
-export const FOLDER_COLORS = [
-  "#3b82f6",
-  "#10b981",
-  "#f59e0b",
-  "#ef4444",
-  "#8b5cf6",
-  "#ec4899",
-  "#14b8a6",
-  "#f97316",
-];
+// Monochrome palette — folders no longer have a visible per-folder color.
+// The field is kept on the type for backwards-compat with existing data.
+export const FOLDER_COLORS = ["#111111"];

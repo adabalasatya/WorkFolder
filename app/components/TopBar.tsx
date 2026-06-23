@@ -8,34 +8,79 @@ export default function TopBar() {
   const folder = state.folders.find((f) => f.id === state.currentFolderId);
   const file = state.files.find((f) => f.id === state.currentFileId);
 
-  let title: React.ReactNode = "All folders";
-  if (state.view === "folder" && folder) title = folder.name;
-  if (state.view === "editor" && folder && file)
-    title = (
-      <>
-        <span className="text-[var(--muted)]">{folder.name}</span>
-        <span className="mx-1 text-[var(--muted)]">/</span>
-        <span className="font-semibold">{file.title}</span>
-      </>
+  const goFolder = (id: string) =>
+    dispatch({
+      type: "SET_VIEW",
+      payload: { view: "folder", folderId: id, fileId: null },
+    });
+  const goDashboard = () =>
+    dispatch({
+      type: "SET_VIEW",
+      payload: { view: "dashboard", folderId: null, fileId: null },
+    });
+
+  const parentLink = (name: string, onClick: () => void) => (
+    <button
+      onClick={onClick}
+      className="text-[var(--muted)] hover:text-[var(--foreground)] transition shrink-0 truncate"
+    >
+      {name}
+    </button>
+  );
+
+  const sep = <span className="text-[var(--muted)] shrink-0">/</span>;
+
+  // Two-segment breadcrumb: <parent> / <current>. Tapping the parent
+  // moves up exactly one level instead of jumping to Home.
+  let crumbs: React.ReactNode = (
+    <button
+      onClick={goDashboard}
+      className="text-base font-medium text-[var(--foreground)] truncate"
+    >
+      Home
+    </button>
+  );
+
+  if (state.view === "folder" && folder) {
+    const parent = folder.parentId
+      ? state.folders.find((x) => x.id === folder.parentId) ?? null
+      : null;
+    crumbs = (
+      <div className="flex items-center gap-1.5 min-w-0 text-base">
+        {parent
+          ? parentLink(parent.name, () => goFolder(parent.id))
+          : parentLink("Home", goDashboard)}
+        {sep}
+        <span className="font-medium text-[var(--foreground)] truncate">
+          {folder.name}
+        </span>
+      </div>
     );
-  if (state.view === "progress") title = "Progress";
-  if (state.view === "mindmap") title = "Mind map";
+  } else if (state.view === "editor" && folder && file) {
+    crumbs = (
+      <div className="flex items-center gap-1.5 min-w-0 text-base">
+        {parentLink(folder.name, () => goFolder(folder.id))}
+        {sep}
+        <span className="font-medium text-[var(--foreground)] truncate">
+          {file.title}
+        </span>
+      </div>
+    );
+  } else if (state.view === "progress") {
+    crumbs = (
+      <span className="text-base font-medium truncate">Progress</span>
+    );
+  } else if (state.view === "mindmap") {
+    crumbs = (
+      <span className="text-base font-medium truncate">Mind map</span>
+    );
+  }
 
   return (
     <div className="sticky top-0 z-10 flex items-center gap-2 px-6 py-4 border-b border-[var(--border)] bg-[var(--surface)]/80 backdrop-blur">
-      <button
-        className="text-base text-[var(--muted)] hover:text-[var(--foreground)] transition truncate"
-        onClick={() =>
-          dispatch({
-            type: "SET_VIEW",
-            payload: { view: "dashboard", folderId: null, fileId: null },
-          })
-        }
-      >
-        {title}
-      </button>
+      <div className="min-w-0 flex-1">{crumbs}</div>
 
-      <div className="ml-auto flex items-center gap-2">
+      <div className="ml-auto flex items-center gap-2 shrink-0">
         <button
           onClick={() =>
             dispatch({ type: "SET_VIEW", payload: { view: "progress" } })

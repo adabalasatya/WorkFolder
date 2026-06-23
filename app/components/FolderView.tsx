@@ -148,17 +148,17 @@ export default function FolderView() {
               </span>
             )}
           </div>
-          <div
-            className="text-sm font-medium tabular-nums"
-            style={{ color: folder.color }}
-          >
+          <div className="text-sm font-medium tabular-nums">
             {deep.pct}%
           </div>
         </div>
         <div className="w-full h-1 rounded-full bg-[var(--surface-2)] overflow-hidden">
           <div
             className="h-full rounded-full transition-[width] duration-300"
-            style={{ width: `${deep.pct}%`, background: folder.color }}
+            style={{
+              width: `${deep.pct}%`,
+              background: "var(--foreground)",
+            }}
           />
         </div>
       </div>
@@ -197,7 +197,7 @@ export default function FolderView() {
                 className="rounded-2xl border border-[var(--border)] bg-[var(--surface)] hover:bg-[var(--surface-2)] p-5 min-h-[140px] flex flex-col cursor-pointer transition"
               >
                 <div className="flex items-center gap-2 mb-2">
-                  <FolderIcon size={20} style={{ color: sub.color }} />
+                  <FolderIcon size={20} className="text-[var(--muted)]" />
                   <div className="font-semibold text-base flex-1">
                     {sub.name}
                   </div>
@@ -209,7 +209,10 @@ export default function FolderView() {
                   <div className="w-full h-1 rounded-full bg-[var(--surface-2)] overflow-hidden">
                     <div
                       className="h-full rounded-full"
-                      style={{ width: `${sp.pct}%`, background: sub.color }}
+                      style={{
+                        width: `${sp.pct}%`,
+                        background: "var(--foreground)",
+                      }}
                     />
                   </div>
                 </div>
@@ -260,7 +263,7 @@ export default function FolderView() {
                   ? "border-[var(--border)]"
                   : "border-[var(--border)] hover:border-[var(--foreground)]/40"
               }`}
-              style={file.isCompleted ? { color: folder.color } : undefined}
+              style={undefined}
             >
               {file.isCompleted ? (
                 <CheckIcon size={12} />
