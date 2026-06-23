@@ -74,13 +74,21 @@ export async function fetchFolders(): Promise<Folder[]> {
   }
   if (parentIdSupported === null) parentIdSupported = true;
   const rows = (data ?? []) as unknown as Record<string, unknown>[];
-  return rows.map((row) => ({
-    id: row.id as string,
-    name: row.name as string,
-    color: row.color as string,
-    createdAt: new Date(row.created_at as string).getTime(),
-    parentId: (row.parent_id as string | null | undefined) ?? null,
-  }));
+  return rows.map((row) => {
+    const f: Folder = {
+      id: row.id as string,
+      name: row.name as string,
+      color: row.color as string,
+      createdAt: new Date(row.created_at as string).getTime(),
+    };
+    // Only attach parentId when we actually read it from the DB. If the
+    // column is missing we leave it `undefined` so the merge step does not
+    // clobber a locally-set parentId.
+    if (parentIdSupported && "parent_id" in row) {
+      f.parentId = (row.parent_id as string | null) ?? null;
+    }
+    return f;
+  });
 }
 
 export async function fetchFiles(): Promise<NoteFile[]> {

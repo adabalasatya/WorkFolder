@@ -217,6 +217,40 @@ export default function Sidebar() {
                 },
               },
               {
+                label: "Move to…",
+                onSelect: () => {
+                  const ans = prompt(
+                    "Move into which folder? (type the folder name, or leave empty for root)",
+                    folder.parentId
+                      ? state.folders.find((x) => x.id === folder.parentId)
+                          ?.name ?? ""
+                      : ""
+                  );
+                  if (ans === null) return;
+                  const target = ans.trim();
+                  if (!target) {
+                    dispatch({
+                      type: "MOVE_FOLDER",
+                      payload: { id: folder.id, parentId: null },
+                    });
+                    return;
+                  }
+                  const match = state.folders.find(
+                    (x) =>
+                      x.id !== folder.id &&
+                      x.name.toLowerCase() === target.toLowerCase()
+                  );
+                  if (!match) {
+                    alert(`No folder named "${target}".`);
+                    return;
+                  }
+                  dispatch({
+                    type: "MOVE_FOLDER",
+                    payload: { id: folder.id, parentId: match.id },
+                  });
+                },
+              },
+              {
                 label: "Delete",
                 danger: true,
                 onSelect: () => {

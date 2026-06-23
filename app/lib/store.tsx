@@ -80,6 +80,10 @@ export type Action =
       payload: { name: string; color?: string; parentId?: string | null };
     }
   | { type: "RENAME_FOLDER"; payload: { id: string; name: string } }
+  | {
+      type: "MOVE_FOLDER";
+      payload: { id: string; parentId: string | null };
+    }
   | { type: "DELETE_FOLDER"; payload: { id: string } }
   | { type: "ADD_FILE"; payload: { folderId: string; title: string } }
   | {
@@ -150,12 +154,25 @@ function reducer(state: AppState, action: Action): AppState {
     case "HYDRATE":
       return { ...state, ...action.payload };
 
-    case "MERGE_REMOTE":
+    case "MERGE_REMOTE": {
+      const folders = mergeById(state.folders, action.payload.folders).map(
+        (merged) => {
+          if (merged.parentId !== undefined) return merged;
+          // Incoming row lacked a parent_id (column missing in DB or omitted
+          // from select). Preserve any local parentId we already had.
+          const local = state.folders.find((f) => f.id === merged.id);
+          if (local && local.parentId !== undefined) {
+            return { ...merged, parentId: local.parentId };
+          }
+          return merged;
+        }
+      );
       return {
         ...state,
-        folders: mergeById(state.folders, action.payload.folders),
+        folders,
         files: mergeById(state.files, action.payload.files),
       };
+    }
 
     case "ADD_FOLDER": {
       const parentId = action.payload.parentId ?? null;
@@ -184,6 +201,27 @@ function reducer(state: AppState, action: Action): AppState {
             : f
         ),
       };
+
+    case "MOVE_FOLDER": {
+      const { id, parentId } = action.payload;
+      if (id === parentId) return state;
+      // Disallow moving into self/descendant to keep the tree acyclic.
+      const descendants = new Set<string>();
+      const walk = (root: string) => {
+        descendants.add(root);
+        state.folders
+          .filter((f) => f.parentId === root)
+          .forEach((c) => walk(c.id));
+      };
+      walk(id);
+      if (parentId && descendants.has(parentId)) return state;
+      return {
+        ...state,
+        folders: state.folders.map((f) =>
+          f.id === id ? { ...f, parentId } : f
+        ),
+      };
+    }
 
     case "DELETE_FOLDER": {
       const toDelete = new Set<string>();
