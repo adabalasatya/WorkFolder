@@ -285,18 +285,6 @@ export default function FolderView() {
           </div>
         ))}
 
-        {creating ? null : (
-          <button
-            onClick={() => {
-              setCreating("file");
-              setNewName("");
-            }}
-            className="flex items-center gap-2.5 px-3 py-2 text-[var(--muted)] hover:text-[var(--foreground)] hover:bg-[var(--surface-2)] transition text-sm"
-          >
-            <PlusIcon size={14} />
-            <span>New file</span>
-          </button>
-        )}
       </div>
 
       {menu && (
