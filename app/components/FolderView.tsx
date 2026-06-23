@@ -219,6 +219,7 @@ export default function FolderView() {
         </div>
       )}
 
+      {files.length > 0 && (
       <div className="flex flex-col rounded-xl border border-[var(--border)] bg-[var(--surface)] overflow-hidden divide-y divide-[var(--border)]">
         {files.map((file) => (
           <div
@@ -286,6 +287,7 @@ export default function FolderView() {
         ))}
 
       </div>
+      )}
 
       {menu && (
         <ContextMenu

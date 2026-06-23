@@ -3,68 +3,137 @@
 import {
   useCallback,
   useEffect,
-  useLayoutEffect,
+  useMemo,
   useRef,
-  useState,
 } from "react";
 import { useStore } from "../lib/store";
+import { renderMarkdown } from "../lib/markdown";
 import {
   ArrowDownIcon,
   CheckIcon,
-  ChevronDownIcon,
   ChevronLeftIcon,
   TrashIcon,
 } from "./icons";
 
-type Insertion = {
-  value: string;
-  selStart: number;
-  selEnd: number;
-};
-
-type Modifier = (
-  value: string,
-  selStart: number,
-  selEnd: number
-) => Insertion;
+const FONT_STEPS = [10, 12, 14, 16, 18, 20, 24, 28, 32, 40, 48];
 
 export default function Editor() {
   const { state, dispatch } = useStore();
   const file = state.files.find((f) => f.id === state.currentFileId);
   const folder = state.folders.find((f) => f.id === state.currentFolderId);
-  const taRef = useRef<HTMLTextAreaElement>(null);
-  const pendingSelection = useRef<{ start: number; end: number } | null>(null);
+  const editorRef = useRef<HTMLDivElement>(null);
+  const lastWrittenContent = useRef<string>("");
 
+  const initialHtml = useMemo(() => {
+    const content = file?.content ?? "";
+    if (!content) return "";
+    // Treat as HTML if any tag is present; otherwise convert legacy markdown.
+    if (/<[a-z][^>]*>/i.test(content)) return content;
+    return renderMarkdown(content);
+  }, [file?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Mount/swap document content when the active file changes.
   useEffect(() => {
-    taRef.current?.focus();
-  }, [file?.id]);
+    if (!editorRef.current || !file) return;
+    if (editorRef.current.innerHTML !== initialHtml) {
+      editorRef.current.innerHTML = initialHtml;
+      lastWrittenContent.current = initialHtml;
+    }
+    editorRef.current.focus();
+  }, [file?.id, initialHtml, file]);
 
-  useLayoutEffect(() => {
-    const ta = taRef.current;
-    const sel = pendingSelection.current;
-    if (!ta || !sel) return;
-    ta.focus();
-    ta.setSelectionRange(sel.start, sel.end);
-    pendingSelection.current = null;
-  }, [file?.content]);
+  const flush = useCallback(() => {
+    const el = editorRef.current;
+    if (!el || !file) return;
+    const html = el.innerHTML;
+    if (html === lastWrittenContent.current) return;
+    lastWrittenContent.current = html;
+    dispatch({
+      type: "UPDATE_FILE",
+      payload: { id: file.id, content: html },
+    });
+  }, [dispatch, file]);
 
-  const apply = useCallback(
-    (mod: Modifier) => {
-      const ta = taRef.current;
-      if (!ta || !file) return;
-      const start = ta.selectionStart;
-      const end = ta.selectionEnd;
-      const next = mod(ta.value, start, end);
-      pendingSelection.current = {
-        start: next.selStart,
-        end: next.selEnd,
-      };
-      dispatch({
-        type: "UPDATE_FILE",
-        payload: { id: file.id, content: next.value },
-      });
+  const exec = useCallback(
+    (cmd: string, value?: string) => {
+      editorRef.current?.focus();
+      document.execCommand("styleWithCSS", false, "true");
+      document.execCommand(cmd, false, value);
+      flush();
     },
-    [dispatch, file]
+    [flush]
+  );
+
+  const adjustFont = useCallback(
+    (direction: 1 | -1) => {
+      const el = editorRef.current;
+      if (!el) return;
+      el.focus();
+      const sel = window.getSelection();
+      if (!sel || sel.rangeCount === 0) return;
+      const range = sel.getRangeAt(0);
+      // If nothing selected, select the current word so the change is visible.
+      if (range.collapsed) {
+        const node = range.startContainer;
+        if (node.nodeType === Node.TEXT_NODE) {
+          const text = node.textContent ?? "";
+          const offset = range.startOffset;
+          let start = offset;
+          let end = offset;
+          while (start > 0 && /\S/.test(text[start - 1])) start--;
+          while (end < text.length && /\S/.test(text[end])) end++;
+          if (end > start) {
+            range.setStart(node, start);
+            range.setEnd(node, end);
+            sel.removeAllRanges();
+            sel.addRange(range);
+          } else {
+            return;
+          }
+        } else {
+          return;
+        }
+      }
+      const anchor =
+        range.commonAncestorContainer.nodeType === Node.ELEMENT_NODE
+          ? (range.commonAncestorContainer as Element)
+          : range.commonAncestorContainer.parentElement;
+      const currentSize = anchor
+        ? parseFloat(window.getComputedStyle(anchor).fontSize)
+        : 14;
+      let idx = FONT_STEPS.findIndex(
+        (s) => Math.abs(s - currentSize) < 0.5 || s > currentSize
+      );
+      if (idx === -1) idx = FONT_STEPS.length - 1;
+      const next =
+        direction === 1
+          ? FONT_STEPS[Math.min(FONT_STEPS.length - 1, idx + 1)]
+          : FONT_STEPS[Math.max(0, idx - 1)];
+      const span = document.createElement("span");
+      span.style.fontSize = `${next}px`;
+      try {
+        const contents = range.extractContents();
+        span.appendChild(contents);
+        range.insertNode(span);
+        const newRange = document.createRange();
+        newRange.selectNodeContents(span);
+        sel.removeAllRanges();
+        sel.addRange(newRange);
+      } catch {
+        return;
+      }
+      flush();
+    },
+    [flush]
+  );
+
+  const insertHtml = useCallback(
+    (html: string) => {
+      editorRef.current?.focus();
+      document.execCommand("insertHTML", false, html);
+      flush();
+    },
+    [flush]
   );
 
   if (!file || !folder) {
@@ -86,7 +155,8 @@ export default function Editor() {
     );
   }
 
-  const wordCount = file.content
+  const wordCount = (file.content ?? "")
+    .replace(/<[^>]+>/g, " ")
     .trim()
     .split(/\s+/)
     .filter((w) => w.length > 0).length;
@@ -133,7 +203,12 @@ export default function Editor() {
           </button>
         </div>
 
-        <FormatToolbar apply={apply} wordCount={wordCount} />
+        <FormatToolbar
+          exec={exec}
+          insertHtml={insertHtml}
+          adjustFont={adjustFont}
+          wordCount={wordCount}
+        />
 
         <div
           className="h-0.5 w-full rounded-full mt-3"
@@ -141,18 +216,15 @@ export default function Editor() {
         />
       </div>
 
-      <textarea
-        ref={taRef}
-        value={file.content}
-        onChange={(e) =>
-          dispatch({
-            type: "UPDATE_FILE",
-            payload: { id: file.id, content: e.target.value },
-          })
-        }
+      <div
+        ref={editorRef}
+        contentEditable
+        suppressContentEditableWarning
+        onInput={flush}
+        onBlur={flush}
         spellCheck={false}
-        placeholder="Start writing..."
-        className="font-mono text-sm leading-7 flex-1 px-8 pt-6 pb-12 bg-transparent outline-none resize-none placeholder:text-[var(--muted)]"
+        data-placeholder="Start writing..."
+        className="rich-editor text-sm leading-7 flex-1 px-8 pt-6 pb-12 outline-none overflow-y-auto"
       />
 
       <div className="absolute bottom-4 left-1/2 -translate-x-1/2 text-[var(--muted)] opacity-60 pointer-events-none">
@@ -165,10 +237,14 @@ export default function Editor() {
 /* ---------------------------- Toolbar ---------------------------- */
 
 function FormatToolbar({
-  apply,
+  exec,
+  insertHtml,
+  adjustFont,
   wordCount,
 }: {
-  apply: (mod: Modifier) => void;
+  exec: (cmd: string, value?: string) => void;
+  insertHtml: (html: string) => void;
+  adjustFont: (dir: 1 | -1) => void;
   wordCount: number;
 }) {
   return (
@@ -178,36 +254,147 @@ function FormatToolbar({
       </span>
 
       <TbGroup>
-        <TbButton title="Bold" onClick={() => apply(wrap("**"))}>
+        <TbButton title="Bold" onClick={() => exec("bold")}>
           <span className="font-bold">B</span>
         </TbButton>
-        <TbButton title="Italic" onClick={() => apply(wrap("_"))}>
+        <TbButton title="Italic" onClick={() => exec("italic")}>
           <span className="italic font-serif">I</span>
         </TbButton>
-        <TbButton title="Strikethrough" onClick={() => apply(wrap("~~"))}>
+        <TbButton
+          title="Strikethrough"
+          onClick={() => exec("strikeThrough")}
+        >
           <span className="line-through">S</span>
         </TbButton>
       </TbGroup>
 
-      <HeadingMenu apply={apply} />
-
-      <AlignMenu apply={apply} />
+      <TbGroup>
+        <TbButton title="Decrease font size" onClick={() => adjustFont(-1)}>
+          <span className="text-[10px] font-semibold leading-none">
+            A<span className="text-[8px]">−</span>
+          </span>
+        </TbButton>
+        <TbButton title="Increase font size" onClick={() => adjustFont(1)}>
+          <span className="text-[12px] font-semibold leading-none">
+            A<span className="text-[8px]">+</span>
+          </span>
+        </TbButton>
+      </TbGroup>
 
       <TbGroup>
-        <TbButton title="Inline code" onClick={() => apply(wrap("`"))}>
+        <TbButton
+          title="Heading 1"
+          onClick={() => exec("formatBlock", "<h1>")}
+        >
+          <span className="font-bold text-[11px]">H1</span>
+        </TbButton>
+        <TbButton
+          title="Heading 2"
+          onClick={() => exec("formatBlock", "<h2>")}
+        >
+          <span className="font-semibold text-[11px]">H2</span>
+        </TbButton>
+        <TbButton
+          title="Heading 3"
+          onClick={() => exec("formatBlock", "<h3>")}
+        >
+          <span className="font-medium text-[11px]">H3</span>
+        </TbButton>
+      </TbGroup>
+
+      <TbGroup>
+        <TbButton title="Align left" onClick={() => exec("justifyLeft")}>
+          <AlignGlyph kind="left" />
+        </TbButton>
+        <TbButton
+          title="Align center"
+          onClick={() => exec("justifyCenter")}
+        >
+          <AlignGlyph kind="center" />
+        </TbButton>
+        <TbButton title="Align right" onClick={() => exec("justifyRight")}>
+          <AlignGlyph kind="right" />
+        </TbButton>
+      </TbGroup>
+
+      <TbGroup>
+        <TbButton
+          title="Inline code"
+          onClick={() => insertHtml("<code></code>")}
+        >
           <span className="font-mono">{"</>"}</span>
         </TbButton>
         <TbButton
           title="Code block"
-          onClick={() => apply(blockWrap("```\n", "\n```"))}
+          onClick={() => insertHtml("<pre><code></code></pre><p></p>")}
         >
           <span className="font-mono">{">_"}</span>
         </TbButton>
       </TbGroup>
 
-      <ListMenu apply={apply} />
+      <TbGroup>
+        <TbButton
+          title="Checklist"
+          onClick={() =>
+            insertHtml(
+              '<ul class="task-list"><li class="task-item"><input type="checkbox" disabled> </li></ul>'
+            )
+          }
+        >
+          <ListGlyph kind="check" />
+        </TbButton>
+        <TbButton
+          title="Bullet list"
+          onClick={() => exec("insertUnorderedList")}
+        >
+          <ListGlyph kind="bullet" />
+        </TbButton>
+        <TbButton
+          title="Radio list"
+          onClick={() =>
+            insertHtml(
+              '<ul class="radio-list"><li class="radio-item"><input type="radio" disabled> </li></ul>'
+            )
+          }
+        >
+          <ListGlyph kind="radio" />
+        </TbButton>
+        <TbButton
+          title="Numbered list"
+          onClick={() => exec("insertOrderedList")}
+        >
+          <ListGlyph kind="number" />
+        </TbButton>
+      </TbGroup>
 
-      <DividerMenu apply={apply} />
+      <TbGroup>
+        <TbButton
+          title="Line divider"
+          onClick={() => insertHtml("<hr><p></p>")}
+        >
+          <DividerGlyph kind="line" />
+        </TbButton>
+        <TbButton
+          title="Dots divider"
+          onClick={() =>
+            insertHtml(
+              '<p class="divider-dots" style="text-align:center;letter-spacing:.6em;color:var(--muted)">· · · · · · · · ·</p><p></p>'
+            )
+          }
+        >
+          <DividerGlyph kind="dots" />
+        </TbButton>
+        <TbButton
+          title="Line block divider"
+          onClick={() =>
+            insertHtml(
+              '<p class="divider-block" style="text-align:center;letter-spacing:.4em;color:var(--muted)">— — — — — — — —</p><p></p>'
+            )
+          }
+        >
+          <DividerGlyph kind="block" />
+        </TbButton>
+      </TbGroup>
 
       <span className="ml-auto text-xs text-[var(--muted)] tabular-nums pr-1">
         {wordCount} {wordCount === 1 ? "word" : "words"}
@@ -228,12 +415,10 @@ function TbButton({
   children,
   onClick,
   title,
-  active,
 }: {
   children: React.ReactNode;
   onClick: () => void;
   title: string;
-  active?: boolean;
 }) {
   return (
     <button
@@ -242,228 +427,29 @@ function TbButton({
       aria-label={title}
       onMouseDown={(e) => e.preventDefault()}
       onClick={onClick}
-      className={`min-w-7 h-7 px-2 rounded-md text-xs grid place-items-center transition ${
-        active
-          ? "bg-[var(--surface-2)] text-[var(--foreground)]"
-          : "text-[var(--muted)] hover:text-[var(--foreground)] hover:bg-[var(--surface-2)]"
-      }`}
+      className="min-w-7 h-7 px-2 rounded-md text-xs grid place-items-center text-[var(--muted)] hover:text-[var(--foreground)] hover:bg-[var(--surface-2)] transition"
     >
       {children}
     </button>
-  );
-}
-
-function Dropdown({
-  label,
-  title,
-  children,
-}: {
-  label: React.ReactNode;
-  title: string;
-  children: (close: () => void) => React.ReactNode;
-}) {
-  const [open, setOpen] = useState(false);
-  const ref = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    if (!open) return;
-    const onAway = (e: MouseEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node)) {
-        setOpen(false);
-      }
-    };
-    const onEsc = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setOpen(false);
-    };
-    document.addEventListener("mousedown", onAway);
-    document.addEventListener("keydown", onEsc);
-    return () => {
-      document.removeEventListener("mousedown", onAway);
-      document.removeEventListener("keydown", onEsc);
-    };
-  }, [open]);
-
-  return (
-    <div ref={ref} className="relative inline-flex">
-      <button
-        type="button"
-        title={title}
-        aria-label={title}
-        onMouseDown={(e) => e.preventDefault()}
-        onClick={() => setOpen((v) => !v)}
-        className={`inline-flex items-center gap-1 h-7 px-2 rounded-lg border text-xs transition ${
-          open
-            ? "border-[var(--accent)] text-[var(--foreground)] bg-[var(--surface-2)]"
-            : "border-[var(--border)] text-[var(--muted)] hover:text-[var(--foreground)] hover:bg-[var(--surface-2)]"
-        }`}
-      >
-        {label}
-        <ChevronDownIcon size={10} />
-      </button>
-      {open && (
-        <div className="absolute top-full left-0 mt-1 min-w-[10rem] rounded-lg border border-[var(--border)] bg-[var(--surface)] shadow-lg p-1 z-30">
-          {children(() => setOpen(false))}
-        </div>
-      )}
-    </div>
-  );
-}
-
-function MenuItem({
-  onClick,
-  children,
-}: {
-  onClick: () => void;
-  children: React.ReactNode;
-}) {
-  return (
-    <button
-      type="button"
-      onMouseDown={(e) => e.preventDefault()}
-      onClick={onClick}
-      className="w-full text-left px-2.5 py-1.5 rounded-md text-xs text-[var(--foreground)] hover:bg-[var(--surface-2)] transition flex items-center gap-2"
-    >
-      {children}
-    </button>
-  );
-}
-
-function HeadingMenu({ apply }: { apply: (m: Modifier) => void }) {
-  return (
-    <Dropdown
-      title="Heading"
-      label={<span className="font-semibold">H</span>}
-    >
-      {(close) => (
-        <>
-          {[1, 2, 3].map((lvl) => (
-            <MenuItem
-              key={lvl}
-              onClick={() => {
-                apply(linePrefix(`${"#".repeat(lvl)} `));
-                close();
-              }}
-            >
-              <span
-                className="font-semibold"
-                style={{ fontSize: 16 - (lvl - 1) * 2 }}
-              >
-                H{lvl}
-              </span>
-              <span className="text-[var(--muted)]">Heading {lvl}</span>
-            </MenuItem>
-          ))}
-        </>
-      )}
-    </Dropdown>
-  );
-}
-
-function AlignMenu({ apply }: { apply: (m: Modifier) => void }) {
-  const wrapAlign = (align: "left" | "center" | "right"): Modifier => {
-    return (value, s, e) => {
-      const sel = value.slice(s, e) || "text";
-      const open = `<div align="${align}">\n`;
-      const close = `\n</div>`;
-      const inserted = open + sel + close;
-      return {
-        value: value.slice(0, s) + inserted + value.slice(e),
-        selStart: s + open.length,
-        selEnd: s + open.length + sel.length,
-      };
-    };
-  };
-  return (
-    <Dropdown
-      title="Alignment"
-      label={<AlignGlyph kind="left" />}
-    >
-      {(close) => (
-        <>
-          <MenuItem
-            onClick={() => {
-              apply(wrapAlign("left"));
-              close();
-            }}
-          >
-            <AlignGlyph kind="left" /> Align left
-          </MenuItem>
-          <MenuItem
-            onClick={() => {
-              apply(wrapAlign("center"));
-              close();
-            }}
-          >
-            <AlignGlyph kind="center" /> Align center
-          </MenuItem>
-          <MenuItem
-            onClick={() => {
-              apply(wrapAlign("right"));
-              close();
-            }}
-          >
-            <AlignGlyph kind="right" /> Align right
-          </MenuItem>
-        </>
-      )}
-    </Dropdown>
   );
 }
 
 function AlignGlyph({ kind }: { kind: "left" | "center" | "right" }) {
   return (
-    <svg width={14} height={14} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round">
+    <svg
+      width={14}
+      height={14}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={2}
+      strokeLinecap="round"
+    >
       <path d="M3 6h18" />
       {kind === "left" && <path d="M3 12h12M3 18h16" />}
       {kind === "center" && <path d="M6 12h12M5 18h14" />}
       {kind === "right" && <path d="M9 12h12M5 18h16" />}
     </svg>
-  );
-}
-
-function ListMenu({ apply }: { apply: (m: Modifier) => void }) {
-  return (
-    <Dropdown
-      title="Lists"
-      label={<ListGlyph kind="bullet" />}
-    >
-      {(close) => (
-        <>
-          <MenuItem
-            onClick={() => {
-              apply(linePrefix("- [ ] "));
-              close();
-            }}
-          >
-            <ListGlyph kind="check" /> Checklist
-          </MenuItem>
-          <MenuItem
-            onClick={() => {
-              apply(linePrefix("- "));
-              close();
-            }}
-          >
-            <ListGlyph kind="bullet" /> Bullet list
-          </MenuItem>
-          <MenuItem
-            onClick={() => {
-              apply(linePrefix("( ) "));
-              close();
-            }}
-          >
-            <ListGlyph kind="radio" /> Radio list
-          </MenuItem>
-          <MenuItem
-            onClick={() => {
-              apply(numberPrefix());
-              close();
-            }}
-          >
-            <ListGlyph kind="number" /> Numbered list
-          </MenuItem>
-        </>
-      )}
-    </Dropdown>
   );
 }
 
@@ -474,7 +460,14 @@ function ListGlyph({
 }) {
   if (kind === "check") {
     return (
-      <svg width={14} height={14} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+      <svg
+        width={14}
+        height={14}
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth={2}
+      >
         <rect x="4" y="4" width="16" height="16" rx="2" />
         <path d="M8 12l3 3 5-6" />
       </svg>
@@ -482,7 +475,14 @@ function ListGlyph({
   }
   if (kind === "radio") {
     return (
-      <svg width={14} height={14} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+      <svg
+        width={14}
+        height={14}
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth={2}
+      >
         <circle cx="12" cy="12" r="8" />
         <circle cx="12" cy="12" r="3" fill="currentColor" />
       </svg>
@@ -490,75 +490,40 @@ function ListGlyph({
   }
   if (kind === "number") {
     return (
-      <svg width={14} height={14} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round">
-        <text x="2" y="11" fontSize="9" fill="currentColor" stroke="none">1.</text>
-        <text x="2" y="20" fontSize="9" fill="currentColor" stroke="none">2.</text>
+      <svg
+        width={14}
+        height={14}
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth={2}
+        strokeLinecap="round"
+      >
+        <text x="2" y="11" fontSize="9" fill="currentColor" stroke="none">
+          1.
+        </text>
+        <text x="2" y="20" fontSize="9" fill="currentColor" stroke="none">
+          2.
+        </text>
         <path d="M10 7h12M10 17h12" />
       </svg>
     );
   }
   return (
-    <svg width={14} height={14} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round">
+    <svg
+      width={14}
+      height={14}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={2}
+      strokeLinecap="round"
+    >
       <circle cx="5" cy="7" r="1.2" fill="currentColor" />
       <circle cx="5" cy="12" r="1.2" fill="currentColor" />
       <circle cx="5" cy="17" r="1.2" fill="currentColor" />
       <path d="M10 7h12M10 12h12M10 17h12" />
     </svg>
-  );
-}
-
-function DividerMenu({ apply }: { apply: (m: Modifier) => void }) {
-  const insertBlock = (block: string): Modifier => {
-    return (value, s) => {
-      const before = value.slice(0, s);
-      const after = value.slice(s);
-      const needsLeading = before.length > 0 && !before.endsWith("\n");
-      const needsTrailing = after.length > 0 && !after.startsWith("\n");
-      const lead = needsLeading ? "\n" : "";
-      const trail = needsTrailing ? "\n" : "";
-      const inserted = `${lead}${block}\n${trail}`;
-      const cursor = s + inserted.length;
-      return {
-        value: before + inserted + after,
-        selStart: cursor,
-        selEnd: cursor,
-      };
-    };
-  };
-  return (
-    <Dropdown
-      title="Divider"
-      label={<DividerGlyph kind="line" />}
-    >
-      {(close) => (
-        <>
-          <MenuItem
-            onClick={() => {
-              apply(insertBlock("---"));
-              close();
-            }}
-          >
-            <DividerGlyph kind="line" /> Line divider
-          </MenuItem>
-          <MenuItem
-            onClick={() => {
-              apply(insertBlock("· · · · · · · · · ·"));
-              close();
-            }}
-          >
-            <DividerGlyph kind="dots" /> Dots divider
-          </MenuItem>
-          <MenuItem
-            onClick={() => {
-              apply(insertBlock("— — — — — — — — — —"));
-              close();
-            }}
-          >
-            <DividerGlyph kind="block" /> Line block divider
-          </MenuItem>
-        </>
-      )}
-    </Dropdown>
   );
 }
 
@@ -575,92 +540,30 @@ function DividerGlyph({ kind }: { kind: "line" | "dots" | "block" }) {
   }
   if (kind === "block") {
     return (
-      <svg width={14} height={14} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round">
+      <svg
+        width={14}
+        height={14}
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth={2}
+        strokeLinecap="round"
+      >
         <path d="M4 12h3M9 12h3M14 12h3M19 12h2" />
       </svg>
     );
   }
   return (
-    <svg width={14} height={14} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round">
+    <svg
+      width={14}
+      height={14}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={2}
+      strokeLinecap="round"
+    >
       <path d="M4 12h16" />
     </svg>
   );
-}
-
-/* ---------------------------- Modifiers ---------------------------- */
-
-function wrap(marker: string): Modifier {
-  return (value, s, e) => {
-    if (s === e) {
-      const inserted = marker + marker;
-      return {
-        value: value.slice(0, s) + inserted + value.slice(e),
-        selStart: s + marker.length,
-        selEnd: s + marker.length,
-      };
-    }
-    const sel = value.slice(s, e);
-    const wrapped = marker + sel + marker;
-    return {
-      value: value.slice(0, s) + wrapped + value.slice(e),
-      selStart: s + marker.length,
-      selEnd: s + marker.length + sel.length,
-    };
-  };
-}
-
-function blockWrap(open: string, close: string): Modifier {
-  return (value, s, e) => {
-    const sel = value.slice(s, e) || "code";
-    const before = value.slice(0, s);
-    const after = value.slice(e);
-    const needsLeading = before.length > 0 && !before.endsWith("\n");
-    const lead = needsLeading ? "\n" : "";
-    const inserted = `${lead}${open}${sel}${close}\n`;
-    return {
-      value: before + inserted + after,
-      selStart: s + lead.length + open.length,
-      selEnd: s + lead.length + open.length + sel.length,
-    };
-  };
-}
-
-function linePrefix(prefix: string): Modifier {
-  return (value, s, e) => {
-    const lineStart = value.lastIndexOf("\n", s - 1) + 1;
-    const lineEnd =
-      value.indexOf("\n", e) === -1 ? value.length : value.indexOf("\n", e);
-    const before = value.slice(0, lineStart);
-    const block = value.slice(lineStart, lineEnd);
-    const after = value.slice(lineEnd);
-    const lines = block.split("\n");
-    const transformed = lines
-      .map((ln) => (ln.length === 0 ? prefix.trimEnd() : prefix + ln))
-      .join("\n");
-    return {
-      value: before + transformed + after,
-      selStart: lineStart + transformed.length,
-      selEnd: lineStart + transformed.length,
-    };
-  };
-}
-
-function numberPrefix(): Modifier {
-  return (value, s, e) => {
-    const lineStart = value.lastIndexOf("\n", s - 1) + 1;
-    const lineEnd =
-      value.indexOf("\n", e) === -1 ? value.length : value.indexOf("\n", e);
-    const before = value.slice(0, lineStart);
-    const block = value.slice(lineStart, lineEnd);
-    const after = value.slice(lineEnd);
-    const lines = block.split("\n");
-    const transformed = lines
-      .map((ln, i) => (ln.length === 0 ? `${i + 1}.` : `${i + 1}. ${ln}`))
-      .join("\n");
-    return {
-      value: before + transformed + after,
-      selStart: lineStart + transformed.length,
-      selEnd: lineStart + transformed.length,
-    };
-  };
 }
