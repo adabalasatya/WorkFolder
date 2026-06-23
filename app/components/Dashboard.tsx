@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { selectFolderProgress, useStore } from "../lib/store";
+import { selectFolderProgressDeep, useStore } from "../lib/store";
 import { FolderIcon, PlusIcon } from "./icons";
 import ContextMenu, { type MenuItem } from "./ContextMenu";
 
@@ -16,9 +16,9 @@ export default function Dashboard() {
   } | null>(null);
 
   const search = state.search.toLowerCase();
-  const folders = state.folders.filter((f) =>
-    !search ? true : f.name.toLowerCase().includes(search)
-  );
+  const folders = state.folders
+    .filter((f) => !f.parentId)
+    .filter((f) => (!search ? true : f.name.toLowerCase().includes(search)));
 
   const create = () => {
     if (!newName.trim()) {
@@ -44,7 +44,7 @@ export default function Dashboard() {
         }
       >
         {folders.map((folder) => {
-          const { total, done, pct } = selectFolderProgress(state, folder.id);
+          const { total, done, pct } = selectFolderProgressDeep(state, folder.id);
           const tint = `${folder.color}33`;
           if (state.viewMode === "list") {
             return (

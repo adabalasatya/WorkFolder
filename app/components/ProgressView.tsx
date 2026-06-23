@@ -5,14 +5,40 @@ import {
   selectOverallStats,
   useStore,
 } from "../lib/store";
-import { FlameIcon } from "./icons";
+import { ChevronLeftIcon, FlameIcon } from "./icons";
 
 export default function ProgressView() {
   const { state, dispatch } = useStore();
   const stats = selectOverallStats(state);
 
+  const goBack = () => {
+    if (state.currentFolderId) {
+      dispatch({
+        type: "SET_VIEW",
+        payload: {
+          view: "folder",
+          folderId: state.currentFolderId,
+          fileId: null,
+        },
+      });
+    } else {
+      dispatch({
+        type: "SET_VIEW",
+        payload: { view: "dashboard", folderId: null, fileId: null },
+      });
+    }
+  };
+
   return (
     <div className="p-8 fade-in max-w-5xl">
+      <div className="mb-4">
+        <button
+          onClick={goBack}
+          className="inline-flex items-center gap-2 px-4 py-2 rounded-xl border border-[var(--border)] hover:bg-[var(--surface-2)] text-sm transition"
+        >
+          <ChevronLeftIcon size={14} /> Back
+        </button>
+      </div>
       <header className="mb-6 flex items-start gap-4">
         <div className="flex-1">
           <h1 className="text-3xl font-semibold tracking-tight">
