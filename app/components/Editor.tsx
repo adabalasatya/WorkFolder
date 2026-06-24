@@ -341,12 +341,13 @@ export default function Editor() {
     updateFormats();
   }, [flush, updateFormats]);
 
-  /* --- Headings — heading begins on a NEW line, never re-styles the
-         text the user already typed.
-         Strategy: build a fresh empty <h1/2/3>, insert it AFTER the
-         current line's container (whether that's a real block element
-         or just a top-level text node directly under the editor — both
-         happen in contenteditable), then park the caret inside. --- */
+  /* --- Headings — three behaviors:
+         (a) Caret already inside the same heading (tap H1 while on an H1)
+             → toggle OFF, demote to <p> in place.
+         (b) Caret inside a different heading (tap H2 while on H1)
+             → swap the tag in place, keeping the content.
+         (c) Caret not inside a heading → build a fresh empty heading and
+             insert it on the next line (never re-styles existing text). --- */
   const applyHeading = useCallback(
     (tag: "h1" | "h2" | "h3") => {
       const el = editorRef.current;
@@ -357,22 +358,48 @@ export default function Editor() {
       const node = sel.anchorNode;
       if (!node || !el.contains(node)) return;
 
+      const startEl = elNodeFromSelection(node);
+      const existingHeading = startEl?.closest(
+        "h1, h2, h3, h4, h5, h6"
+      ) as HTMLElement | null;
+
+      if (existingHeading && el.contains(existingHeading)) {
+        const currentTag = existingHeading.tagName.toLowerCase();
+        if (currentTag === tag) {
+          // (a) Toggle off — convert heading back to a paragraph.
+          const p = document.createElement("p");
+          while (existingHeading.firstChild) {
+            p.appendChild(existingHeading.firstChild);
+          }
+          if (!p.firstChild) p.appendChild(document.createElement("br"));
+          existingHeading.replaceWith(p);
+        } else {
+          // (b) Swap heading level in place.
+          const swapped = document.createElement(tag);
+          while (existingHeading.firstChild) {
+            swapped.appendChild(existingHeading.firstChild);
+          }
+          if (!swapped.firstChild)
+            swapped.appendChild(document.createElement("br"));
+          existingHeading.replaceWith(swapped);
+        }
+        flush();
+        updateFormats();
+        return;
+      }
+
+      // (c) Not inside a heading — create a new one on the next row.
       const heading = document.createElement(tag);
       heading.appendChild(document.createElement("br"));
 
       const block = currentBlock(node, el);
       if (block && block !== el) {
         if (isBlank(block)) {
-          // Empty paragraph / heading at the caret — promote it.
           block.replaceWith(heading);
         } else {
-          // Current block has content — heading lands on the next row.
           block.after(heading);
         }
       } else {
-        // No block ancestor (caret sits in loose text directly under the
-        // editor). Climb to whichever direct child of the editor contains
-        // the caret and put the heading right after that.
         let top: Node = node;
         while (top.parentNode && top.parentNode !== el) {
           top = top.parentNode;
@@ -663,6 +690,82 @@ export default function Editor() {
     },
     [flush, updateFormats]
   );
+
+  /* Strike must NEVER carry into newly-typed text — even if the user
+     clicks back inside an existing <s> region. We intercept text input
+     while the caret is anywhere inside an <s>, prevent the browser's
+     default insert (which would put the character inside the <s>), and
+     instead split the <s> at the caret and write the new text in
+     between the two halves. */
+  useEffect(() => {
+    const el = editorRef.current;
+    if (!el) return;
+    const handler = (raw: Event) => {
+      const e = raw as InputEvent;
+      const type = e.inputType;
+      // Only plain-text insertion; deletes, paste, IME etc. left alone.
+      if (type !== "insertText" && type !== "insertReplacementText") return;
+      const text = e.data;
+      if (!text) return;
+      const sel = window.getSelection();
+      if (!sel || sel.rangeCount === 0) return;
+      const range = sel.getRangeAt(0);
+      const startEl =
+        range.startContainer.nodeType === Node.ELEMENT_NODE
+          ? (range.startContainer as Element)
+          : range.startContainer.parentElement;
+      if (!startEl || !el.contains(startEl)) return;
+      const strikeAncestor = startEl.closest(
+        "s, strike, del"
+      ) as HTMLElement | null;
+      if (!strikeAncestor || !el.contains(strikeAncestor)) return;
+
+      // We're inside a strike. Intercept.
+      e.preventDefault();
+
+      // Drop any selection contents first.
+      if (!range.collapsed) range.deleteContents();
+
+      // Split: everything from the caret to the end of the <s> moves into
+      // a sibling <s> that sits AFTER the typed text.
+      const splitRange = document.createRange();
+      splitRange.setStart(range.startContainer, range.startOffset);
+      splitRange.setEnd(strikeAncestor, strikeAncestor.childNodes.length);
+      const tailFragment = splitRange.extractContents();
+
+      const typedNode = document.createTextNode(text);
+      let trailingStrike: HTMLElement | null = null;
+      if (tailFragment.textContent && tailFragment.textContent.length > 0) {
+        trailingStrike = document.createElement("s");
+        trailingStrike.appendChild(tailFragment);
+      }
+
+      const parent = strikeAncestor.parentNode;
+      if (!parent) return;
+      const refNode = strikeAncestor.nextSibling;
+      parent.insertBefore(typedNode, refNode);
+      if (trailingStrike) parent.insertBefore(trailingStrike, refNode);
+
+      // Clean up an emptied strike head (cursor was at the very start).
+      if (
+        !strikeAncestor.textContent ||
+        strikeAncestor.childNodes.length === 0
+      ) {
+        strikeAncestor.remove();
+      }
+
+      const newRange = document.createRange();
+      newRange.setStart(typedNode, text.length);
+      newRange.collapse(true);
+      sel.removeAllRanges();
+      sel.addRange(newRange);
+
+      flush();
+      updateFormats();
+    };
+    el.addEventListener("beforeinput", handler);
+    return () => el.removeEventListener("beforeinput", handler);
+  }, [flush, updateFormats]);
 
   /* Click anywhere in the editor's blank space (background, or directly
      below a <pre>) — move the caret OUT of any code block to the
