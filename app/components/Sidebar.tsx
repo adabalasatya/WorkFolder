@@ -383,9 +383,7 @@ export default function Sidebar() {
                   )}
                   <span
                     className={`text-xs truncate ${
-                      file.isCompleted
-                        ? "line-through text-[var(--muted)]"
-                        : ""
+                      file.isCompleted ? "text-[var(--muted)]" : ""
                     }`}
                   >
                     {file.title}

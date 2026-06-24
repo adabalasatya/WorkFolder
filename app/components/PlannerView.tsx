@@ -450,7 +450,7 @@ function TaskRow({
       <div className="min-w-0 flex-1">
         <div
           className={`text-sm font-semibold ${
-            done ? "line-through text-[var(--muted)]" : ""
+            done ? "text-[var(--muted)]" : ""
           }`}
         >
           {task.title}

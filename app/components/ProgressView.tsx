@@ -250,7 +250,7 @@ function FolderTreeRow({
         />
         <span
           className={`text-sm font-medium min-w-[160px] max-w-[260px] truncate ${
-            complete ? "line-through text-[var(--muted)]" : ""
+            complete ? "text-[var(--muted)]" : ""
           }`}
         >
           <span className="text-[var(--muted)] tabular-nums">
@@ -329,7 +329,7 @@ function FileTreeRow({
       />
       <span
         className={`text-sm truncate flex-1 ${
-          file.isCompleted ? "line-through text-[var(--muted)]" : ""
+          file.isCompleted ? "text-[var(--muted)]" : ""
         }`}
       >
         {file.title.replace(/\.md$/i, "")}

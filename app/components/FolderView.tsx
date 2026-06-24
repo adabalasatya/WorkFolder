@@ -274,7 +274,7 @@ export default function FolderView() {
             <FileIcon size={13} className="shrink-0 text-[var(--muted)]" />
             <span
               className={`text-sm truncate flex-1 ${
-                file.isCompleted ? "line-through text-[var(--muted)]" : ""
+                file.isCompleted ? "text-[var(--muted)]" : ""
               }`}
             >
               {file.title.replace(/\.md$/i, "")}
