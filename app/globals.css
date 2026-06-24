@@ -259,6 +259,13 @@ body {
 .rich-editor pre {
   position: relative;
 }
+/* The empty paragraph that follows a <pre> is the user's escape hatch
+   out of the code block — make sure it has clickable height even when
+   it only contains a single <br>. */
+.rich-editor pre + p {
+  min-height: 1.6em;
+  margin-top: 0.25rem;
+}
 .rich-editor pre::before {
   content: ">_";
   position: absolute;

@@ -308,9 +308,11 @@ export default function Editor() {
   const toggleItalic = useCallback(() => exec("italic"), [exec]);
 
   /* --- Strike — REQUIRES selection. --- */
-  /* Wrap the current selection in <s>…</s> directly (no execCommand) so
-     the browser doesn't keep "strike mode" armed for the next typed
-     characters. Strike is a one-shot operation on the selection only. */
+  /* Strike — one-shot wrap on the selection.
+     We wrap the selected text in <s>, then insert a *real* text-node
+     sibling AFTER the wrapper and park the caret inside it. This
+     guarantees the next typed character goes into the un-struck text
+     node, not into the <s> element, so strike never carries forward. */
   const toggleStrike = useCallback(() => {
     const el = editorRef.current;
     if (!el) return;
@@ -325,9 +327,13 @@ export default function Editor() {
     } catch {
       return;
     }
-    // Park the caret OUTSIDE the wrapper so typing resumes un-struck.
+    // Sibling text node after the wrapper. A zero-width space gives it
+    // real "presence" so the caret can sit inside an inline parent that
+    // is NOT the <s> — typing then appends into this text node.
+    const trailer = document.createTextNode("​");
+    wrapper.parentNode?.insertBefore(trailer, wrapper.nextSibling);
     const after = document.createRange();
-    after.setStartAfter(wrapper);
+    after.setStart(trailer, 1);
     after.collapse(true);
     sel.removeAllRanges();
     sel.addRange(after);
@@ -335,23 +341,29 @@ export default function Editor() {
     updateFormats();
   }, [flush, updateFormats]);
 
-  /* --- Headings — apply to next characters: if the current block has text,
-         start a NEW heading block after it and place the caret inside. --- */
+  /* --- Headings — applied to the *next* line.
+         When the current block has text, we first split the line at the
+         caret (insertParagraph, same as pressing Enter), then format the
+         freshly-created empty block as the chosen heading. So existing
+         text never gets re-styled; the heading begins on the new row. --- */
   const applyHeading = useCallback(
     (tag: "h1" | "h2" | "h3") => {
-      editorRef.current?.focus();
-      const sel = window.getSelection();
       const el = editorRef.current;
-      if (!sel || sel.rangeCount === 0 || !el) return;
+      if (!el) return;
+      el.focus();
+      const sel = window.getSelection();
+      if (!sel || sel.rangeCount === 0) return;
       const block = currentBlock(sel.anchorNode, el);
-      if (!block || isBlank(block)) {
+      // Empty current block (or no block at all) → just format-block it.
+      if (!block || block === el || isBlank(block)) {
         document.execCommand("formatBlock", false, `<${tag}>`);
-      } else {
-        const next = document.createElement(tag);
-        next.appendChild(document.createElement("br"));
-        block.after(next);
-        placeCaretIn(next);
+        flush();
+        updateFormats();
+        return;
       }
+      // Block has content → break to a new line, then promote it.
+      document.execCommand("insertParagraph");
+      document.execCommand("formatBlock", false, `<${tag}>`);
       flush();
       updateFormats();
     },
@@ -434,32 +446,56 @@ export default function Editor() {
     [flush, updateFormats]
   );
 
-  /* --- Code block — insert <pre><code># program</code></pre><p><br></p>
-         so the box visibly says "this is code". The caret lands at the
-         END of the placeholder so the user can keep typing right away.
-         Clicking on the trailing paragraph (or any text outside) moves
-         the caret out of the box, since it's just normal DOM. --- */
+  /* --- Code block — always lands on its own new line.
+         If the current block is empty, we replace it with <pre>; if it has
+         content we append the <pre> right after it (the typed text stays
+         in its paragraph). A trailing empty <p> sits below so the user
+         has a clickable line to escape into. --- */
   const insertCodeBlock = useCallback(() => {
     const el = editorRef.current;
     if (!el) return;
     el.focus();
-    const html = `<pre><code data-caret="1"># program</code></pre><p><br></p>`;
-    document.execCommand("insertHTML", false, html);
-    const caret = el.querySelector('code[data-caret="1"]');
-    if (caret instanceof HTMLElement) {
-      caret.removeAttribute("data-caret");
-      const textNode = caret.firstChild;
-      const range = document.createRange();
-      if (textNode && textNode.nodeType === Node.TEXT_NODE) {
-        range.setStart(textNode, textNode.textContent?.length ?? 0);
-      } else {
-        range.setStart(caret, caret.childNodes.length);
+    const sel = window.getSelection();
+
+    const pre = document.createElement("pre");
+    const code = document.createElement("code");
+    code.textContent = "# program";
+    pre.appendChild(code);
+
+    const trailing = document.createElement("p");
+    trailing.appendChild(document.createElement("br"));
+
+    let inserted = false;
+    if (sel && sel.rangeCount > 0) {
+      const block = currentBlock(sel.anchorNode, el);
+      if (block && block !== el) {
+        if (isBlank(block)) {
+          block.replaceWith(pre);
+        } else {
+          block.after(pre);
+        }
+        pre.after(trailing);
+        inserted = true;
       }
-      range.collapse(true);
-      const sel = window.getSelection();
-      sel?.removeAllRanges();
-      sel?.addRange(range);
     }
+    if (!inserted) {
+      el.appendChild(pre);
+      el.appendChild(trailing);
+    }
+
+    // Caret at end of "# program" so the user can keep typing.
+    const textNode = code.firstChild as Text | null;
+    const range = document.createRange();
+    if (textNode) {
+      range.setStart(textNode, textNode.textContent?.length ?? 0);
+    } else {
+      range.setStart(code, code.childNodes.length);
+    }
+    range.collapse(true);
+    const s = window.getSelection();
+    s?.removeAllRanges();
+    s?.addRange(range);
+
     flush();
     updateFormats();
   }, [flush, updateFormats]);
@@ -605,6 +641,62 @@ export default function Editor() {
     [flush, updateFormats]
   );
 
+  /* Click anywhere in the editor's blank space (background, or directly
+     below a <pre>) — move the caret OUT of any code block to the
+     nearest writable paragraph. */
+  const onEditorClick = useCallback(
+    (e: React.MouseEvent<HTMLDivElement>) => {
+      const el = editorRef.current;
+      if (!el) return;
+      const target = e.target as Element;
+
+      const ensureTrailingP = (after: HTMLElement): HTMLElement => {
+        const sib = after.nextElementSibling;
+        if (sib && sib.tagName === "P") return sib as HTMLElement;
+        const p = document.createElement("p");
+        p.appendChild(document.createElement("br"));
+        after.after(p);
+        return p;
+      };
+
+      // Click landed on the editor's empty background.
+      if (target === el) {
+        const last = el.lastElementChild as HTMLElement | null;
+        if (!last) return;
+        // If the last block is a <pre>, drop the caret into a fresh
+        // paragraph right after it.
+        if (last.tagName === "PRE") {
+          const p = ensureTrailingP(last);
+          placeCaretIn(p);
+          flush();
+        } else {
+          const r = document.createRange();
+          r.selectNodeContents(last);
+          r.collapse(false);
+          const s = window.getSelection();
+          s?.removeAllRanges();
+          s?.addRange(r);
+        }
+        return;
+      }
+
+      // Click landed inside a code block — leave alone (user wants to type
+      // code). The standard browser caret placement covers this.
+      const insidePre = target.closest("pre");
+      if (insidePre) return;
+
+      // Otherwise: if the click is on a paragraph immediately after a
+      // <pre> and that paragraph is empty, browsers sometimes still
+      // anchor inside the <pre>. Force the caret into the clicked block.
+      const block = (target as HTMLElement).closest?.("p,div,h1,h2,h3,li");
+      if (block instanceof HTMLElement && el.contains(block)) {
+        // Let the browser's default click-to-caret behavior win.
+        return;
+      }
+    },
+    [flush]
+  );
+
   if (!file || !folder) {
     return (
       <div className="p-8 fade-in">
@@ -702,6 +794,7 @@ export default function Editor() {
         onKeyDown={onKeyDown}
         onKeyUp={updateFormats}
         onMouseUp={updateFormats}
+        onClick={onEditorClick}
         spellCheck={false}
         data-placeholder="Start writing..."
         className="rich-editor text-sm leading-7 flex-1 px-8 pt-6 pb-12 outline-none overflow-y-auto"
