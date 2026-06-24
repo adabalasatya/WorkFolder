@@ -341,11 +341,12 @@ export default function Editor() {
     updateFormats();
   }, [flush, updateFormats]);
 
-  /* --- Headings — applied to the *next* line.
-         When the current block has text, we first split the line at the
-         caret (insertParagraph, same as pressing Enter), then format the
-         freshly-created empty block as the chosen heading. So existing
-         text never gets re-styled; the heading begins on the new row. --- */
+  /* --- Headings — heading begins on a NEW line, never re-styles the
+         text the user already typed.
+         Strategy: build a fresh empty <h1/2/3>, insert it AFTER the
+         current line's container (whether that's a real block element
+         or just a top-level text node directly under the editor — both
+         happen in contenteditable), then park the caret inside. --- */
   const applyHeading = useCallback(
     (tag: "h1" | "h2" | "h3") => {
       const el = editorRef.current;
@@ -353,17 +354,39 @@ export default function Editor() {
       el.focus();
       const sel = window.getSelection();
       if (!sel || sel.rangeCount === 0) return;
-      const block = currentBlock(sel.anchorNode, el);
-      // Empty current block (or no block at all) → just format-block it.
-      if (!block || block === el || isBlank(block)) {
-        document.execCommand("formatBlock", false, `<${tag}>`);
-        flush();
-        updateFormats();
-        return;
+      const node = sel.anchorNode;
+      if (!node || !el.contains(node)) return;
+
+      const heading = document.createElement(tag);
+      heading.appendChild(document.createElement("br"));
+
+      const block = currentBlock(node, el);
+      if (block && block !== el) {
+        if (isBlank(block)) {
+          // Empty paragraph / heading at the caret — promote it.
+          block.replaceWith(heading);
+        } else {
+          // Current block has content — heading lands on the next row.
+          block.after(heading);
+        }
+      } else {
+        // No block ancestor (caret sits in loose text directly under the
+        // editor). Climb to whichever direct child of the editor contains
+        // the caret and put the heading right after that.
+        let top: Node = node;
+        while (top.parentNode && top.parentNode !== el) {
+          top = top.parentNode;
+        }
+        if (top.parentNode === el) {
+          const next = top.nextSibling;
+          if (next) el.insertBefore(heading, next);
+          else el.appendChild(heading);
+        } else {
+          el.appendChild(heading);
+        }
       }
-      // Block has content → break to a new line, then promote it.
-      document.execCommand("insertParagraph");
-      document.execCommand("formatBlock", false, `<${tag}>`);
+
+      placeCaretIn(heading);
       flush();
       updateFormats();
     },
