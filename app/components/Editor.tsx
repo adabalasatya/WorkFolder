@@ -28,7 +28,6 @@ const DEFAULT_FONT = 14;
 type Formats = {
   bold: boolean;
   italic: boolean;
-  strike: boolean;
   h1: boolean;
   h2: boolean;
   h3: boolean;
@@ -46,7 +45,6 @@ type Formats = {
 const emptyFormats: Formats = {
   bold: false,
   italic: false,
-  strike: false,
   h1: false,
   h2: false,
   h3: false,
@@ -269,7 +267,6 @@ export default function Editor() {
     setFormats({
       bold: document.queryCommandState("bold"),
       italic: document.queryCommandState("italic"),
-      strike: document.queryCommandState("strikeThrough"),
       h1: blockTag === "h1",
       h2: blockTag === "h2",
       h3: blockTag === "h3",
@@ -308,39 +305,6 @@ export default function Editor() {
   const toggleItalic = useCallback(() => exec("italic"), [exec]);
 
   /* --- Strike — REQUIRES selection. --- */
-  /* Strike — one-shot wrap on the selection.
-     We wrap the selected text in <s>, then insert a *real* text-node
-     sibling AFTER the wrapper and park the caret inside it. This
-     guarantees the next typed character goes into the un-struck text
-     node, not into the <s> element, so strike never carries forward. */
-  const toggleStrike = useCallback(() => {
-    const el = editorRef.current;
-    if (!el) return;
-    el.focus();
-    const sel = window.getSelection();
-    if (!sel || sel.isCollapsed || sel.rangeCount === 0) return;
-    const range = sel.getRangeAt(0);
-    const wrapper = document.createElement("s");
-    try {
-      wrapper.appendChild(range.extractContents());
-      range.insertNode(wrapper);
-    } catch {
-      return;
-    }
-    // Sibling text node after the wrapper. A zero-width space gives it
-    // real "presence" so the caret can sit inside an inline parent that
-    // is NOT the <s> — typing then appends into this text node.
-    const trailer = document.createTextNode("​");
-    wrapper.parentNode?.insertBefore(trailer, wrapper.nextSibling);
-    const after = document.createRange();
-    after.setStart(trailer, 1);
-    after.collapse(true);
-    sel.removeAllRanges();
-    sel.addRange(after);
-    flush();
-    updateFormats();
-  }, [flush, updateFormats]);
-
   /* --- Headings — three behaviors:
          (a) Caret already inside the same heading (tap H1 while on an H1)
              → toggle OFF, demote to <p> in place.
@@ -691,82 +655,6 @@ export default function Editor() {
     [flush, updateFormats]
   );
 
-  /* Strike must NEVER carry into newly-typed text — even if the user
-     clicks back inside an existing <s> region. We intercept text input
-     while the caret is anywhere inside an <s>, prevent the browser's
-     default insert (which would put the character inside the <s>), and
-     instead split the <s> at the caret and write the new text in
-     between the two halves. */
-  useEffect(() => {
-    const el = editorRef.current;
-    if (!el) return;
-    const handler = (raw: Event) => {
-      const e = raw as InputEvent;
-      const type = e.inputType;
-      // Only plain-text insertion; deletes, paste, IME etc. left alone.
-      if (type !== "insertText" && type !== "insertReplacementText") return;
-      const text = e.data;
-      if (!text) return;
-      const sel = window.getSelection();
-      if (!sel || sel.rangeCount === 0) return;
-      const range = sel.getRangeAt(0);
-      const startEl =
-        range.startContainer.nodeType === Node.ELEMENT_NODE
-          ? (range.startContainer as Element)
-          : range.startContainer.parentElement;
-      if (!startEl || !el.contains(startEl)) return;
-      const strikeAncestor = startEl.closest(
-        "s, strike, del"
-      ) as HTMLElement | null;
-      if (!strikeAncestor || !el.contains(strikeAncestor)) return;
-
-      // We're inside a strike. Intercept.
-      e.preventDefault();
-
-      // Drop any selection contents first.
-      if (!range.collapsed) range.deleteContents();
-
-      // Split: everything from the caret to the end of the <s> moves into
-      // a sibling <s> that sits AFTER the typed text.
-      const splitRange = document.createRange();
-      splitRange.setStart(range.startContainer, range.startOffset);
-      splitRange.setEnd(strikeAncestor, strikeAncestor.childNodes.length);
-      const tailFragment = splitRange.extractContents();
-
-      const typedNode = document.createTextNode(text);
-      let trailingStrike: HTMLElement | null = null;
-      if (tailFragment.textContent && tailFragment.textContent.length > 0) {
-        trailingStrike = document.createElement("s");
-        trailingStrike.appendChild(tailFragment);
-      }
-
-      const parent = strikeAncestor.parentNode;
-      if (!parent) return;
-      const refNode = strikeAncestor.nextSibling;
-      parent.insertBefore(typedNode, refNode);
-      if (trailingStrike) parent.insertBefore(trailingStrike, refNode);
-
-      // Clean up an emptied strike head (cursor was at the very start).
-      if (
-        !strikeAncestor.textContent ||
-        strikeAncestor.childNodes.length === 0
-      ) {
-        strikeAncestor.remove();
-      }
-
-      const newRange = document.createRange();
-      newRange.setStart(typedNode, text.length);
-      newRange.collapse(true);
-      sel.removeAllRanges();
-      sel.addRange(newRange);
-
-      flush();
-      updateFormats();
-    };
-    el.addEventListener("beforeinput", handler);
-    return () => el.removeEventListener("beforeinput", handler);
-  }, [flush, updateFormats]);
-
   /* Click anywhere in the editor's blank space (background, or directly
      below a <pre>) — move the caret OUT of any code block to the
      nearest writable paragraph. */
@@ -895,7 +783,6 @@ export default function Editor() {
           formats={formats}
           toggleBold={toggleBold}
           toggleItalic={toggleItalic}
-          toggleStrike={toggleStrike}
           applyHeading={applyHeading}
           applyAlign={applyAlign}
           adjustFont={adjustFont}
@@ -1018,7 +905,6 @@ function FormatToolbar({
   formats,
   toggleBold,
   toggleItalic,
-  toggleStrike,
   applyHeading,
   applyAlign,
   adjustFont,
@@ -1030,7 +916,6 @@ function FormatToolbar({
   formats: Formats;
   toggleBold: () => void;
   toggleItalic: () => void;
-  toggleStrike: () => void;
   applyHeading: (tag: "h1" | "h2" | "h3") => void;
   applyAlign: (cmd: "justifyLeft" | "justifyCenter" | "justifyRight") => void;
   adjustFont: (dir: 1 | -1) => void;
@@ -1055,13 +940,6 @@ function FormatToolbar({
           onClick={toggleItalic}
         >
           <span className="italic font-serif">I</span>
-        </TbButton>
-        <TbButton
-          title="Strikethrough (select text first)"
-          active={formats.strike}
-          onClick={toggleStrike}
-        >
-          <span className="line-through">S</span>
         </TbButton>
       </TbGroup>
 
