@@ -12,7 +12,9 @@ import {
 import type {
   Folder,
   NoteFile,
+  RepeatKind,
   StreakState,
+  Task,
   View,
 } from "./types";
 import { FOLDER_COLORS } from "./types";
@@ -46,6 +48,7 @@ const yesterdayStr = () => {
 export interface AppState {
   folders: Folder[];
   files: NoteFile[];
+  tasks: Task[];
   view: View;
   currentFolderId: string | null;
   currentFileId: string | null;
@@ -57,6 +60,7 @@ export interface AppState {
 const initialState: AppState = {
   folders: [],
   files: [],
+  tasks: [],
   view: "dashboard",
   currentFolderId: null,
   currentFileId: null,
@@ -102,7 +106,20 @@ export type Action =
       };
     }
   | { type: "SET_SEARCH"; payload: string }
-  | { type: "SET_VIEW_MODE"; payload: "grid" | "list" };
+  | { type: "SET_VIEW_MODE"; payload: "grid" | "list" }
+  | {
+      type: "ADD_TASK";
+      payload: {
+        title: string;
+        startDate: string;
+        time?: string;
+        repeat: RepeatKind;
+        linkedFileId?: string | null;
+        linkedFolderId?: string | null;
+      };
+    }
+  | { type: "DELETE_TASK"; payload: { id: string } }
+  | { type: "TOGGLE_TASK_DONE"; payload: { id: string; date: string } };
 
 function errorMessage(e: unknown): string {
   if (typeof e === "string") return e;
@@ -119,6 +136,62 @@ function errorMessage(e: unknown): string {
     }
   }
   return String(e ?? "Unknown error");
+}
+
+function dayOfWeek(ymd: string): number {
+  const [y, m, d] = ymd.split("-").map(Number);
+  return new Date(y, (m ?? 1) - 1, d ?? 1).getDay();
+}
+
+export function taskShowsOn(task: Task, date: string): boolean {
+  if (task.startDate > date) return false;
+  if (task.repeat === "once") return task.startDate === date;
+  if (task.repeat === "daily") return true;
+  if (task.repeat === "weekly")
+    return dayOfWeek(task.startDate) === dayOfWeek(date);
+  return false;
+}
+
+export function taskDoneOn(task: Task, date: string): boolean {
+  return task.completedDates.includes(date);
+}
+
+/**
+ * After files mutate, walk every task with a folder/file link and tick
+ * today's instance "done" if the linked content has just gone to done.
+ */
+function applyAutoCompletion(
+  tasks: Task[],
+  folders: Folder[],
+  files: NoteFile[]
+): Task[] {
+  const today = todayStr();
+  const completedFolderIds = new Set<string>();
+  folders.forEach((folder) => {
+    const folderFiles = files.filter((f) => f.folderId === folder.id);
+    if (folderFiles.length > 0 && folderFiles.every((f) => f.isCompleted))
+      completedFolderIds.add(folder.id);
+  });
+  return tasks.map((task) => {
+    if (!task.linkedFileId && !task.linkedFolderId) return task;
+    if (!taskShowsOn(task, today)) return task;
+    if (task.completedDates.includes(today)) return task;
+    let shouldComplete = false;
+    if (task.linkedFileId) {
+      const f = files.find((x) => x.id === task.linkedFileId);
+      if (f?.isCompleted) shouldComplete = true;
+    }
+    if (!shouldComplete && task.linkedFolderId) {
+      if (completedFolderIds.has(task.linkedFolderId)) shouldComplete = true;
+    }
+    if (!shouldComplete) return task;
+    return {
+      ...task,
+      completedDates: [...task.completedDates, today],
+      autoCompletedDates: [...task.autoCompletedDates, today],
+      updatedAt: Date.now(),
+    };
+  });
 }
 
 function tickStreak(streak: StreakState): StreakState {
@@ -288,7 +361,10 @@ function reducer(state: AppState, action: Action): AppState {
         return f;
       });
       const streak = touchedCompletion ? tickStreak(state.streak) : state.streak;
-      return { ...state, files, streak };
+      const tasks = touchedCompletion
+        ? applyAutoCompletion(state.tasks, state.folders, files)
+        : state.tasks;
+      return { ...state, files, streak, tasks };
     }
 
     case "RENAME_FILE":
@@ -331,6 +407,62 @@ function reducer(state: AppState, action: Action): AppState {
 
     case "SET_VIEW_MODE":
       return { ...state, viewMode: action.payload };
+
+    case "ADD_TASK": {
+      const now = Date.now();
+      const task: Task = {
+        id: newId(),
+        title: action.payload.title.trim() || "Untitled task",
+        startDate: action.payload.startDate,
+        time: action.payload.time,
+        repeat: action.payload.repeat,
+        linkedFileId: action.payload.linkedFileId ?? null,
+        linkedFolderId: action.payload.linkedFolderId ?? null,
+        completedDates: [],
+        autoCompletedDates: [],
+        createdAt: now,
+        updatedAt: now,
+      };
+      // If the linked content is already done today, prefill the
+      // completion so the task lands in the "Completed" section.
+      const tasks = applyAutoCompletion(
+        [...state.tasks, task],
+        state.folders,
+        state.files
+      );
+      return { ...state, tasks };
+    }
+
+    case "DELETE_TASK":
+      return {
+        ...state,
+        tasks: state.tasks.filter((t) => t.id !== action.payload.id),
+      };
+
+    case "TOGGLE_TASK_DONE": {
+      const { id, date } = action.payload;
+      let touched = false;
+      const tasks = state.tasks.map((t) => {
+        if (t.id !== id) return t;
+        const has = t.completedDates.includes(date);
+        const completedDates = has
+          ? t.completedDates.filter((d) => d !== date)
+          : [...t.completedDates, date];
+        // Manual tap clears the "auto" flag for that date.
+        const autoCompletedDates = t.autoCompletedDates.filter(
+          (d) => d !== date
+        );
+        if (!has) touched = true;
+        return {
+          ...t,
+          completedDates,
+          autoCompletedDates,
+          updatedAt: Date.now(),
+        };
+      });
+      const streak = touched ? tickStreak(state.streak) : state.streak;
+      return { ...state, tasks, streak };
+    }
 
     default:
       return state;
@@ -412,12 +544,21 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       const persisted = {
         folders: state.folders,
         files: state.files,
+        tasks: state.tasks,
         viewMode: state.viewMode,
         streak: state.streak,
       };
       localStorage.setItem(storageKey(userId), JSON.stringify(persisted));
     } catch {}
-  }, [state.folders, state.files, state.viewMode, state.streak, hydrated, userId]);
+  }, [
+    state.folders,
+    state.files,
+    state.tasks,
+    state.viewMode,
+    state.streak,
+    hydrated,
+    userId,
+  ]);
 
   // 3) Initial pull from Supabase + mark sync ready
   useEffect(() => {

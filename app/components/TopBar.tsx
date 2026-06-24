@@ -1,7 +1,7 @@
 "use client";
 
 import { useStore } from "../lib/store";
-import { ChartIcon, NetworkIcon } from "./icons";
+import { CalendarIcon, ChartIcon, NetworkIcon } from "./icons";
 
 export default function TopBar() {
   const { state, dispatch } = useStore();
@@ -74,6 +74,10 @@ export default function TopBar() {
     crumbs = (
       <span className="text-base font-medium truncate">Mind map</span>
     );
+  } else if (state.view === "planner") {
+    crumbs = (
+      <span className="text-base font-medium truncate">Planner</span>
+    );
   }
 
   return (
@@ -81,6 +85,14 @@ export default function TopBar() {
       <div className="min-w-0 flex-1">{crumbs}</div>
 
       <div className="ml-auto flex items-center gap-2 shrink-0">
+        <button
+          onClick={() =>
+            dispatch({ type: "SET_VIEW", payload: { view: "planner" } })
+          }
+          className="flex items-center gap-2 px-4 py-2 rounded-xl border border-[var(--border)] hover:bg-[var(--surface-2)] text-sm transition"
+        >
+          <CalendarIcon size={16} /> Planner
+        </button>
         <button
           onClick={() =>
             dispatch({ type: "SET_VIEW", payload: { view: "progress" } })

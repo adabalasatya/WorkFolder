@@ -10,6 +10,7 @@ import FolderView from "./FolderView";
 import Editor from "./Editor";
 import ProgressView from "./ProgressView";
 import MindMap from "./MindMap";
+import PlannerView from "./PlannerView";
 import TopBar from "./TopBar";
 import Auth from "./Auth";
 import Onboarding, { onboardingKey } from "./Onboarding";
@@ -25,6 +26,7 @@ function Workspace() {
         {state.view === "editor" && <Editor />}
         {state.view === "progress" && <ProgressView />}
         {state.view === "mindmap" && <MindMap />}
+        {state.view === "planner" && <PlannerView />}
       </div>
     </main>
   );
