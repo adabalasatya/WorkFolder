@@ -5,19 +5,24 @@ import { useAuth } from "../lib/auth";
 
 const STEPS = [
   {
-    img: "/showcase/dashboard.jpeg",
+    img: "/onboardingImages/folder.jpeg",
     title: "Welcome to NodesMap",
-    desc: "Everything lives in colour-coded folders. Create one per topic and your notes stay tidy from day one.",
+    desc: "Every topic starts as a folder. Spin one up for each subject and your notes stay tidy from the very first line you write.",
   },
   {
-    img: "/showcase/editor.jpeg",
-    title: "Write, then check it off",
-    desc: "Draft notes in clean Markdown and mark them complete when you're done. Each folder fills up as you go.",
+    img: "/onboardingImages/folder2.jpeg",
+    title: "Nest as deep as you like",
+    desc: "Folders inside folders. Group sub-topics, drag files into them, and let the structure grow with what you're learning.",
   },
   {
-    img: "/showcase/progress.jpeg",
-    title: "Watch your progress",
-    desc: "Streaks, completion stats and a radial mind map turn your notes into a picture of how far you've come.",
+    img: "/onboardingImages/planner.jpeg",
+    title: "Plan your study",
+    desc: "Open the Planner, schedule tasks for any day, and link them to a folder or file — they auto-complete when the work is done.",
+  },
+  {
+    img: "/onboardingImages/mindmap.jpeg",
+    title: "See it all at a glance",
+    desc: "Switch to the Mind map for a radial picture of every folder, sub-folder, and note with progress wrapped around each node.",
   },
 ];
 
@@ -45,7 +50,7 @@ export default function Onboarding({ onDone }: { onDone: () => void }) {
       <div className="w-full max-w-md">
         <div className="flex items-center justify-between mb-6">
           <div className="flex items-center gap-2">
-            <div className="size-8 rounded-full bg-[var(--accent)] grid place-items-center text-white font-semibold">
+            <div className="size-8 rounded-full bg-[var(--foreground)] grid place-items-center text-[var(--surface)] font-semibold">
               N
             </div>
             <span className="font-semibold tracking-tight">NodesMap</span>
@@ -63,7 +68,7 @@ export default function Onboarding({ onDone }: { onDone: () => void }) {
           <img
             src={current.img}
             alt={current.title}
-            className="w-full border-b border-[var(--border)] bg-[var(--surface-2)]"
+            className="w-full border-b border-[var(--border)] bg-[var(--surface-2)] object-cover aspect-[4/3]"
           />
           <div className="p-6 text-center">
             <h1 className="text-xl font-semibold tracking-tight">
@@ -78,7 +83,7 @@ export default function Onboarding({ onDone }: { onDone: () => void }) {
                   key={i}
                   className={`h-1.5 rounded-full transition-all ${
                     i === step
-                      ? "w-5 bg-[var(--accent)]"
+                      ? "w-5 bg-[var(--foreground)]"
                       : "w-1.5 bg-[var(--border)]"
                   }`}
                 />
@@ -96,7 +101,7 @@ export default function Onboarding({ onDone }: { onDone: () => void }) {
               )}
               <button
                 onClick={() => (last ? finish() : setStep((s) => s + 1))}
-                className="flex-1 rounded-lg bg-[var(--accent)] text-white py-2.5 text-sm font-medium hover:opacity-90 transition"
+                className="flex-1 rounded-lg bg-[var(--foreground)] text-[var(--surface)] py-2.5 text-sm font-medium hover:opacity-90 transition"
               >
                 {last ? "Enter workspace" : "Next"}
               </button>
