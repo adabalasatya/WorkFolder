@@ -25,10 +25,14 @@ import {
   TrashIcon,
 } from "./icons";
 import ContextMenu, { type MenuItem } from "./ContextMenu";
+import { useDialog } from "./Dialog";
+import { useLoading } from "./LoadingOverlay";
 
 export default function Sidebar() {
   const { state, dispatch, sync, syncError, retrySync } = useStore();
   const { user, signOut } = useAuth();
+  const dialog = useDialog();
+  const loading = useLoading();
   const [creating, setCreating] = useState<null | { parentId: string | null }>(
     null
   );
@@ -217,25 +221,34 @@ export default function Sidebar() {
               },
               {
                 label: "Rename",
-                onSelect: () => {
-                  const name = prompt("Rename folder", folder.name);
-                  if (name)
+                onSelect: async () => {
+                  const name = await dialog.prompt({
+                    title: "Rename folder",
+                    placeholder: "Folder name",
+                    defaultValue: folder.name,
+                    okLabel: "Rename",
+                  });
+                  if (name && name.trim())
                     dispatch({
                       type: "RENAME_FOLDER",
-                      payload: { id: folder.id, name },
+                      payload: { id: folder.id, name: name.trim() },
                     });
                 },
               },
               {
                 label: "Move to…",
-                onSelect: () => {
-                  const ans = prompt(
-                    "Move into which folder? (type the folder name, or leave empty for root)",
-                    folder.parentId
+                onSelect: async () => {
+                  const ans = await dialog.prompt({
+                    title: "Move folder",
+                    message:
+                      "Move into which folder? Type the destination folder name, or leave empty to move to the root.",
+                    placeholder: "Destination folder",
+                    defaultValue: folder.parentId
                       ? state.folders.find((x) => x.id === folder.parentId)
                           ?.name ?? ""
-                      : ""
-                  );
+                      : "",
+                    okLabel: "Move",
+                  });
                   if (ans === null) return;
                   const target = ans.trim();
                   if (!target) {
@@ -251,7 +264,10 @@ export default function Sidebar() {
                       x.name.toLowerCase() === target.toLowerCase()
                   );
                   if (!match) {
-                    alert(`No folder named "${target}".`);
+                    await dialog.alert({
+                      title: "Folder not found",
+                      message: `No folder named “${target}”.`,
+                    });
                     return;
                   }
                   dispatch({
@@ -263,12 +279,14 @@ export default function Sidebar() {
               {
                 label: "Delete",
                 danger: true,
-                onSelect: () => {
-                  if (
-                    confirm(
-                      `Delete folder "${folder.name}" and all its contents?`
-                    )
-                  )
+                onSelect: async () => {
+                  const ok = await dialog.confirm({
+                    title: "Delete folder",
+                    message: `Delete folder “${folder.name}” and all its contents?\n\nThis cannot be undone.`,
+                    okLabel: "Delete",
+                    tone: "danger",
+                  });
+                  if (ok)
                     dispatch({
                       type: "DELETE_FOLDER",
                       payload: { id: folder.id },
@@ -339,20 +357,31 @@ export default function Sidebar() {
                       },
                       {
                         label: "Rename",
-                        onSelect: () => {
-                          const title = prompt("Rename note", file.title);
-                          if (title)
+                        onSelect: async () => {
+                          const title = await dialog.prompt({
+                            title: "Rename note",
+                            placeholder: "Note title",
+                            defaultValue: file.title,
+                            okLabel: "Rename",
+                          });
+                          if (title && title.trim())
                             dispatch({
                               type: "RENAME_FILE",
-                              payload: { id: file.id, title },
+                              payload: { id: file.id, title: title.trim() },
                             });
                         },
                       },
                       {
                         label: "Delete",
                         danger: true,
-                        onSelect: () => {
-                          if (confirm(`Delete note "${file.title}"?`))
+                        onSelect: async () => {
+                          const ok = await dialog.confirm({
+                            title: "Delete note",
+                            message: `Delete note “${file.title}”?\n\nThis cannot be undone.`,
+                            okLabel: "Delete",
+                            tone: "danger",
+                          });
+                          if (ok)
                             dispatch({
                               type: "DELETE_FILE",
                               payload: { id: file.id },
@@ -535,17 +564,23 @@ export default function Sidebar() {
             <button
               onClick={async () => {
                 setSettingsOpen(false);
-                const ok = confirm(
-                  "⚠ Warning: Delete your account?\n\n" +
+                const ok = await dialog.confirm({
+                  title: "Delete your account?",
+                  message:
                     "This will permanently delete EVERYTHING:\n" +
                     "• All your folders\n" +
                     "• All your notes\n" +
                     "• Your progress and account data\n\n" +
-                    "This action cannot be undone. Are you absolutely sure?"
-                );
+                    "This action cannot be undone.",
+                  okLabel: "Delete forever",
+                  tone: "danger",
+                });
                 if (!ok) return;
                 try {
-                  const result = await deleteAccount();
+                  const result = await loading.run(
+                    () => deleteAccount(),
+                    "Deleting your account…"
+                  );
                   // Wipe everything tied to this user from the browser too.
                   try {
                     const keysToDrop: string[] = [];
@@ -562,24 +597,29 @@ export default function Sidebar() {
                     }
                     keysToDrop.forEach((k) => localStorage.removeItem(k));
                   } catch {}
-                  await signOut();
+                  await loading.run(() => signOut(), "Signing you out…");
                   if (result.authDeleted) {
-                    alert(
-                      "Your account and all data have been permanently deleted."
-                    );
+                    await dialog.alert({
+                      title: "Account deleted",
+                      message:
+                        "Your account and all data have been permanently deleted.",
+                    });
                   } else {
-                    alert(
-                      "Your data has been deleted and you've been signed out.\n\n" +
-                        "The account record itself could not be removed automatically — " +
-                        "DM @NodesMap on X (https://x.com/NodesMap) to confirm full deletion of the auth record."
-                    );
+                    await dialog.alert({
+                      title: "Data deleted",
+                      message:
+                        "Your data has been deleted and you've been signed out.\n\n" +
+                        "The account record itself could not be removed automatically — DM @NodesMap on X (https://x.com/NodesMap) to confirm full deletion of the auth record.",
+                    });
                   }
                 } catch (e) {
-                  alert(
-                    "Could not delete your account: " +
+                  await dialog.alert({
+                    title: "Could not delete account",
+                    message:
                       (e instanceof Error ? e.message : String(e)) +
-                      "\n\nDM @NodesMap on X (https://x.com/NodesMap) for help."
-                  );
+                      "\n\nDM @NodesMap on X (https://x.com/NodesMap) for help.",
+                    tone: "danger",
+                  });
                 }
               }}
               className="w-full flex items-center gap-2.5 px-2 py-2 rounded-lg text-sm text-[var(--danger)] hover:bg-[var(--surface-2)] transition"
@@ -588,9 +628,15 @@ export default function Sidebar() {
               Delete account
             </button>
             <button
-              onClick={() => {
+              onClick={async () => {
                 setSettingsOpen(false);
-                if (confirm("Sign out of NodesMap?")) signOut();
+                const ok = await dialog.confirm({
+                  title: "Sign out of NodesMap?",
+                  message: "You'll need to sign in again to continue.",
+                  okLabel: "Sign out",
+                });
+                if (!ok) return;
+                await loading.run(() => signOut(), "Signing you out…");
               }}
               className="w-full flex items-center gap-2.5 px-2 py-2 rounded-lg text-sm text-[var(--foreground)] hover:bg-[var(--surface-2)] transition"
             >

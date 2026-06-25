@@ -4,9 +4,11 @@ import { useState } from "react";
 import { selectFolderProgressDeep, useStore } from "../lib/store";
 import { FolderIcon, PlusIcon } from "./icons";
 import ContextMenu, { type MenuItem } from "./ContextMenu";
+import { useDialog } from "./Dialog";
 
 export default function Dashboard() {
   const { state, dispatch } = useStore();
+  const dialog = useDialog();
   const [creating, setCreating] = useState(false);
   const [newName, setNewName] = useState("");
   const [menu, setMenu] = useState<{
@@ -60,7 +62,7 @@ export default function Dashboard() {
                   setMenu({
                     x: e.clientX,
                     y: e.clientY,
-                    items: folderMenu(folder.id, folder.name, dispatch),
+                    items: folderMenu(folder.id, folder.name, dispatch, dialog),
                   });
                 }}
                 className="flex items-center gap-3 px-4 py-3 rounded-xl border border-[var(--border)] bg-[var(--surface)] hover:bg-[var(--surface-2)] cursor-pointer transition"
@@ -96,7 +98,7 @@ export default function Dashboard() {
                 setMenu({
                   x: e.clientX,
                   y: e.clientY,
-                  items: folderMenu(folder.id, folder.name, dispatch),
+                  items: folderMenu(folder.id, folder.name, dispatch, dialog),
                 });
               }}
               className="relative text-left rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-6 pb-7 hover:bg-[var(--surface-2)] transition group overflow-hidden"
@@ -170,7 +172,8 @@ export default function Dashboard() {
 function folderMenu(
   id: string,
   name: string,
-  dispatch: ReturnType<typeof useStore>["dispatch"]
+  dispatch: ReturnType<typeof useStore>["dispatch"],
+  dialog: ReturnType<typeof useDialog>
 ): MenuItem[] {
   return [
     {
@@ -183,21 +186,31 @@ function folderMenu(
     },
     {
       label: "Rename",
-      onSelect: () => {
-        const next = prompt("Rename folder", name);
-        if (next)
+      onSelect: async () => {
+        const next = await dialog.prompt({
+          title: "Rename folder",
+          placeholder: "Folder name",
+          defaultValue: name,
+          okLabel: "Rename",
+        });
+        if (next && next.trim())
           dispatch({
             type: "RENAME_FOLDER",
-            payload: { id, name: next },
+            payload: { id, name: next.trim() },
           });
       },
     },
     {
       label: "Delete",
       danger: true,
-      onSelect: () => {
-        if (confirm(`Delete folder "${name}" and all its notes?`))
-          dispatch({ type: "DELETE_FOLDER", payload: { id } });
+      onSelect: async () => {
+        const ok = await dialog.confirm({
+          title: "Delete folder",
+          message: `Delete folder “${name}” and all its notes?\n\nThis cannot be undone.`,
+          okLabel: "Delete",
+          tone: "danger",
+        });
+        if (ok) dispatch({ type: "DELETE_FOLDER", payload: { id } });
       },
     },
   ];

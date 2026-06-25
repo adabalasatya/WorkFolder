@@ -5,7 +5,6 @@ import { useAuth } from "../lib/auth";
 import { GoogleIcon } from "./icons";
 
 const SUPPORT_URL = "https://x.com/NodesMap";
-const SUPPORT_HANDLE = "@NodesMap";
 
 // Showcase uses the same screenshots as the onboarding tour so the
 // landing page and the post-login onboarding feel consistent.
@@ -106,7 +105,11 @@ function SignInModal({ onClose }: { onClose: () => void }) {
           disabled={busy}
           className="mt-5 w-full flex items-center justify-center gap-3 rounded-xl border border-[var(--border)] bg-[var(--surface)] py-3 text-sm font-medium hover:bg-[var(--surface-2)] transition disabled:opacity-60"
         >
-          <GoogleIcon size={18} />
+          {busy ? (
+            <span className="loading-spinner !w-4 !h-4 !border-2" />
+          ) : (
+            <GoogleIcon size={18} />
+          )}
           {busy ? "Redirecting to Google…" : "Continue with Google"}
         </button>
 
@@ -277,7 +280,7 @@ export default function Auth() {
             className="inline-flex items-center gap-2 mt-6 rounded-full bg-[var(--foreground)] text-[var(--surface)] px-6 py-3 text-sm font-medium hover:opacity-90 transition"
           >
             <XGlyph />
-            DM us {SUPPORT_HANDLE} on X
+            DM us on X
           </a>
         </div>
       </section>

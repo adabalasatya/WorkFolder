@@ -15,9 +15,11 @@ import {
   PlusIcon,
 } from "./icons";
 import ContextMenu, { type MenuItem } from "./ContextMenu";
+import { useDialog } from "./Dialog";
 
 export default function FolderView() {
   const { state, dispatch } = useStore();
+  const dialog = useDialog();
   const folder = state.folders.find((f) => f.id === state.currentFolderId);
   const [creating, setCreating] = useState<null | "file" | "folder">(null);
   const [newName, setNewName] = useState("");
@@ -179,7 +181,7 @@ export default function FolderView() {
                   setMenu({
                     x: e.clientX,
                     y: e.clientY,
-                    items: folderItemMenu(sub.id, sub.name, dispatch),
+                    items: folderItemMenu(sub.id, sub.name, dispatch, dialog),
                   });
                 }}
                 className="rounded-2xl border border-[var(--border)] bg-[var(--surface)] hover:bg-[var(--surface-2)] p-5 min-h-[140px] flex flex-col cursor-pointer transition"
@@ -230,7 +232,7 @@ export default function FolderView() {
               setMenu({
                 x: e.clientX,
                 y: e.clientY,
-                items: fileMenu(file.id, file.title, dispatch, file.isCompleted),
+                items: fileMenu(file.id, file.title, dispatch, file.isCompleted, dialog),
               });
             }}
             className="group flex items-center gap-2.5 px-3 py-2 hover:bg-[var(--surface-2)] cursor-pointer transition"
@@ -296,7 +298,8 @@ function fileMenu(
   id: string,
   title: string,
   dispatch: ReturnType<typeof useStore>["dispatch"],
-  isCompleted: boolean
+  isCompleted: boolean,
+  dialog: ReturnType<typeof useDialog>
 ): MenuItem[] {
   return [
     {
@@ -313,17 +316,31 @@ function fileMenu(
     },
     {
       label: "Rename",
-      onSelect: () => {
-        const next = prompt("Rename note", title);
-        if (next) dispatch({ type: "RENAME_FILE", payload: { id, title: next } });
+      onSelect: async () => {
+        const next = await dialog.prompt({
+          title: "Rename note",
+          placeholder: "Note title",
+          defaultValue: title,
+          okLabel: "Rename",
+        });
+        if (next && next.trim())
+          dispatch({
+            type: "RENAME_FILE",
+            payload: { id, title: next.trim() },
+          });
       },
     },
     {
       label: "Delete",
       danger: true,
-      onSelect: () => {
-        if (confirm(`Delete note "${title}"?`))
-          dispatch({ type: "DELETE_FILE", payload: { id } });
+      onSelect: async () => {
+        const ok = await dialog.confirm({
+          title: "Delete note",
+          message: `Delete note “${title}”?\n\nThis cannot be undone.`,
+          okLabel: "Delete",
+          tone: "danger",
+        });
+        if (ok) dispatch({ type: "DELETE_FILE", payload: { id } });
       },
     },
   ];
@@ -332,7 +349,8 @@ function fileMenu(
 function folderItemMenu(
   id: string,
   name: string,
-  dispatch: ReturnType<typeof useStore>["dispatch"]
+  dispatch: ReturnType<typeof useStore>["dispatch"],
+  dialog: ReturnType<typeof useDialog>
 ): MenuItem[] {
   return [
     {
@@ -345,18 +363,31 @@ function folderItemMenu(
     },
     {
       label: "Rename",
-      onSelect: () => {
-        const next = prompt("Rename folder", name);
-        if (next)
-          dispatch({ type: "RENAME_FOLDER", payload: { id, name: next } });
+      onSelect: async () => {
+        const next = await dialog.prompt({
+          title: "Rename folder",
+          placeholder: "Folder name",
+          defaultValue: name,
+          okLabel: "Rename",
+        });
+        if (next && next.trim())
+          dispatch({
+            type: "RENAME_FOLDER",
+            payload: { id, name: next.trim() },
+          });
       },
     },
     {
       label: "Delete",
       danger: true,
-      onSelect: () => {
-        if (confirm(`Delete folder "${name}" and all its contents?`))
-          dispatch({ type: "DELETE_FOLDER", payload: { id } });
+      onSelect: async () => {
+        const ok = await dialog.confirm({
+          title: "Delete folder",
+          message: `Delete folder “${name}” and all its contents?\n\nThis cannot be undone.`,
+          okLabel: "Delete",
+          tone: "danger",
+        });
+        if (ok) dispatch({ type: "DELETE_FOLDER", payload: { id } });
       },
     },
   ];

@@ -8,6 +8,7 @@ import {
   useState,
 } from "react";
 import { useStore } from "../lib/store";
+import { useDialog } from "./Dialog";
 import { useAuth } from "../lib/auth";
 import { renderMarkdown } from "../lib/markdown";
 import { clearDraft, readDraft, writeDraft } from "../lib/draftSync";
@@ -62,6 +63,7 @@ const emptyFormats: Formats = {
 export default function Editor() {
   const { state, dispatch } = useStore();
   const { user } = useAuth();
+  const dialog = useDialog();
   const file = state.files.find((f) => f.id === state.currentFileId);
   const folder = state.folders.find((f) => f.id === state.currentFolderId);
   const editorRef = useRef<HTMLDivElement>(null);
@@ -844,8 +846,14 @@ export default function Editor() {
             {file.isCompleted ? "Completed" : "Mark done"}
           </button>
           <button
-            onClick={() => {
-              if (confirm(`Delete note "${file.title}"?`))
+            onClick={async () => {
+              const ok = await dialog.confirm({
+                title: "Delete note",
+                message: `Delete note “${file.title}”?\n\nThis cannot be undone.`,
+                okLabel: "Delete",
+                tone: "danger",
+              });
+              if (ok)
                 dispatch({ type: "DELETE_FILE", payload: { id: file.id } });
             }}
             className="p-2 rounded-xl border border-[var(--border)] hover:bg-[var(--surface-2)] text-[var(--muted)] hover:text-[var(--danger)] transition"

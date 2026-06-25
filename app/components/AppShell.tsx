@@ -14,19 +14,25 @@ import PlannerView from "./PlannerView";
 import TopBar from "./TopBar";
 import Auth from "./Auth";
 import Onboarding, { onboardingKey } from "./Onboarding";
+import { DialogProvider } from "./Dialog";
+import { LoadingOverlayProvider } from "./LoadingOverlay";
 
 function Workspace() {
   const { state } = useStore();
+  // `view` keyed wrapper re-mounts on every switch so the CSS view-fade
+  // animation replays — giving a small transition between screens.
   return (
     <main className="flex-1 min-w-0 flex flex-col h-screen relative">
       <TopBar />
       <div className="flex-1 min-h-0 overflow-y-auto">
-        {state.view === "dashboard" && <Dashboard />}
-        {state.view === "folder" && <FolderView />}
-        {state.view === "editor" && <Editor />}
-        {state.view === "progress" && <ProgressView />}
-        {state.view === "mindmap" && <MindMap />}
-        {state.view === "planner" && <PlannerView />}
+        <div key={state.view} className="view-fade min-h-full">
+          {state.view === "dashboard" && <Dashboard />}
+          {state.view === "folder" && <FolderView />}
+          {state.view === "editor" && <Editor />}
+          {state.view === "progress" && <ProgressView />}
+          {state.view === "mindmap" && <MindMap />}
+          {state.view === "planner" && <PlannerView />}
+        </div>
       </div>
     </main>
   );
@@ -85,8 +91,11 @@ function AuthGate() {
   const { status } = useAuth();
   if (status === "initializing")
     return (
-      <div className="min-h-screen grid place-items-center text-sm text-[var(--muted)]">
-        Loading…
+      <div className="min-h-screen grid place-items-center fade-in">
+        <div className="flex flex-col items-center gap-3 text-sm text-[var(--muted)]">
+          <span className="loading-spinner" />
+          Loading your workspace…
+        </div>
       </div>
     );
   if (status === "disabled")
@@ -108,8 +117,12 @@ function AuthGate() {
 
 export default function AppShell() {
   return (
-    <AuthProvider>
-      <AuthGate />
-    </AuthProvider>
+    <DialogProvider>
+      <LoadingOverlayProvider>
+        <AuthProvider>
+          <AuthGate />
+        </AuthProvider>
+      </LoadingOverlayProvider>
+    </DialogProvider>
   );
 }

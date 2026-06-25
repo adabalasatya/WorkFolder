@@ -311,6 +311,37 @@ body {
   animation: modalPop 200ms cubic-bezier(0.22, 1, 0.36, 1);
 }
 
+/* Brand-matched spinner used by the global LoadingOverlay */
+.loading-spinner {
+  display: inline-block;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  border: 2.5px solid var(--surface-2);
+  border-top-color: var(--foreground);
+  animation: spin 700ms linear infinite;
+}
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* Smoothed view-transition fade for the workspace router */
+@keyframes viewIn {
+  0% {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+.view-fade {
+  animation: viewIn 220ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
 /* Mind map animations — opacity / filter only so we never fight with the
    per-node SVG `transform="translate(x y)"` attribute that positions each
    node. (Using CSS `transform` would override the translate and collapse
