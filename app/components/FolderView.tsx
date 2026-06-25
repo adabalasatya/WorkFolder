@@ -12,6 +12,8 @@ import {
   FileIcon,
   FolderIcon,
   FolderPlusIcon,
+  GridIcon,
+  ListIcon,
   PlusIcon,
 } from "./icons";
 import ContextMenu, { type MenuItem } from "./ContextMenu";
@@ -133,6 +135,36 @@ export default function FolderView() {
               >
                 <PlusIcon size={14} /> New file
               </button>
+              <div className="inline-flex rounded-xl border border-[var(--border)] p-0.5">
+                <button
+                  aria-label="Grid view"
+                  onClick={() =>
+                    dispatch({ type: "SET_VIEW_MODE", payload: "grid" })
+                  }
+                  className={`p-2 rounded-lg transition ${
+                    state.viewMode === "grid"
+                      ? "bg-[var(--surface-2)] text-[var(--foreground)]"
+                      : "text-[var(--muted)] hover:text-[var(--foreground)]"
+                  }`}
+                  title="Grid view"
+                >
+                  <GridIcon size={14} />
+                </button>
+                <button
+                  aria-label="List view"
+                  onClick={() =>
+                    dispatch({ type: "SET_VIEW_MODE", payload: "list" })
+                  }
+                  className={`p-2 rounded-lg transition ${
+                    state.viewMode === "list"
+                      ? "bg-[var(--surface-2)] text-[var(--foreground)]"
+                      : "text-[var(--muted)] hover:text-[var(--foreground)]"
+                  }`}
+                  title="List view"
+                >
+                  <ListIcon size={14} />
+                </button>
+              </div>
             </>
           )}
         </div>
