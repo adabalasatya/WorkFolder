@@ -64,12 +64,16 @@ export default function Onboarding({ onDone }: { onDone: () => void }) {
         </div>
 
         <div className="rounded-2xl border border-[var(--border)] bg-[var(--surface)] overflow-hidden shadow-sm">
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img
-            src={current.img}
-            alt={current.title}
-            className="w-full border-b border-[var(--border)] bg-[var(--surface-2)] object-cover aspect-[4/3]"
-          />
+          {/* Fixed-height letterbox so all four screenshots show in full
+              without cropping, regardless of their native aspect ratio. */}
+          <div className="border-b border-[var(--border)] bg-[var(--surface-2)] h-64 grid place-items-center p-2">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src={current.img}
+              alt={current.title}
+              className="max-w-full max-h-full w-auto h-auto object-contain"
+            />
+          </div>
           <div className="p-6 text-center">
             <h1 className="text-xl font-semibold tracking-tight">
               {step === 0 && name ? `Welcome, ${name}` : current.title}
