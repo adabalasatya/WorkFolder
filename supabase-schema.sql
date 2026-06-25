@@ -50,3 +50,26 @@ create policy "own_files_select" on public.files
   for select using (auth.uid() = user_id);
 create policy "own_files_modify" on public.files
   for all using (auth.uid() = user_id) with check (auth.uid() = user_id);
+
+-- Self-service account deletion. Runs as the function owner so it can
+-- touch auth.users — that table is normally locked away from the
+-- regular `authenticated` role. The function only ever deletes the
+-- *currently authenticated* user, never anyone else.
+create or replace function public.delete_user()
+returns void
+language plpgsql
+security definer
+set search_path = public, auth
+as $$
+declare
+  uid uuid := auth.uid();
+begin
+  if uid is null then
+    raise exception 'Not authenticated';
+  end if;
+  delete from auth.users where id = uid;
+end;
+$$;
+
+revoke all on function public.delete_user() from public;
+grant execute on function public.delete_user() to authenticated;

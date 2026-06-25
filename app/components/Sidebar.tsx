@@ -8,6 +8,7 @@ import {
 } from "../lib/store";
 import type { Folder } from "../lib/types";
 import { useAuth } from "../lib/auth";
+import { deleteAccount } from "../lib/supabase";
 import {
   ChevronDownIcon,
   ChevronRightIcon,
@@ -532,7 +533,7 @@ export default function Sidebar() {
             </div>
             <div className="h-px bg-[var(--border)] my-1" />
             <button
-              onClick={() => {
+              onClick={async () => {
                 setSettingsOpen(false);
                 const ok = confirm(
                   "⚠ Warning: Delete your account?\n\n" +
@@ -542,11 +543,42 @@ export default function Sidebar() {
                     "• Your progress and account data\n\n" +
                     "This action cannot be undone. Are you absolutely sure?"
                 );
-                if (ok) {
+                if (!ok) return;
+                try {
+                  const result = await deleteAccount();
+                  // Wipe everything tied to this user from the browser too.
+                  try {
+                    const keysToDrop: string[] = [];
+                    for (let i = 0; i < localStorage.length; i++) {
+                      const k = localStorage.key(i);
+                      if (!k) continue;
+                      if (
+                        k.startsWith("noteflow_state_v1") ||
+                        k.startsWith("noteflow_onboarded_") ||
+                        k.startsWith("file_draft_")
+                      ) {
+                        keysToDrop.push(k);
+                      }
+                    }
+                    keysToDrop.forEach((k) => localStorage.removeItem(k));
+                  } catch {}
+                  await signOut();
+                  if (result.authDeleted) {
+                    alert(
+                      "Your account and all data have been permanently deleted."
+                    );
+                  } else {
+                    alert(
+                      "Your data has been deleted and you've been signed out.\n\n" +
+                        "The account record itself could not be removed automatically — " +
+                        "email satya1adabala@gmail.com to confirm full deletion of the auth record."
+                    );
+                  }
+                } catch (e) {
                   alert(
-                    "⚠ Account deletion is not available yet.\n\n" +
-                      "Please email support@appspace.co.in to request " +
-                      "permanent deletion of your account and all data."
+                    "Could not delete your account: " +
+                      (e instanceof Error ? e.message : String(e)) +
+                      "\n\nEmail satya1adabala@gmail.com for help."
                   );
                 }
               }}

@@ -174,3 +174,51 @@ export async function deleteFileRemote(id: string) {
     .eq("user_id", userId);
   if (error) throw error;
 }
+
+/**
+ * Permanently delete the currently signed-in user's account.
+ *
+ *  1. Wipes every `files` row owned by the user.
+ *  2. Wipes every `folders` row owned by the user.
+ *  3. Calls the `delete_user` RPC (SECURITY DEFINER) to remove the
+ *     `auth.users` row itself. If the RPC doesn't exist yet on the
+ *     project, the helper still succeeds with `authDeleted: false`
+ *     so the UI can surface the partial result.
+ *
+ * Returns a result object so the caller can communicate exactly what
+ * happened to the user.
+ */
+export async function deleteAccount(): Promise<{
+  dataDeleted: boolean;
+  authDeleted: boolean;
+  authError?: string;
+}> {
+  const sb = getSupabase();
+  const userId = await uid();
+  if (!userId) {
+    return { dataDeleted: false, authDeleted: false };
+  }
+
+  // 1) Delete all files first (FK from files → folders).
+  const filesRes = await sb.from("files").delete().eq("user_id", userId);
+  if (filesRes.error) throw filesRes.error;
+  // 2) Then folders.
+  const foldersRes = await sb.from("folders").delete().eq("user_id", userId);
+  if (foldersRes.error) throw foldersRes.error;
+
+  // 3) Try to remove the auth user via the SECURITY DEFINER RPC.
+  let authDeleted = false;
+  let authError: string | undefined;
+  try {
+    const { error: rpcError } = await sb.rpc("delete_user");
+    if (rpcError) {
+      authError = rpcError.message;
+    } else {
+      authDeleted = true;
+    }
+  } catch (e) {
+    authError = e instanceof Error ? e.message : String(e);
+  }
+
+  return { dataDeleted: true, authDeleted, authError };
+}
