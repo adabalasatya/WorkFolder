@@ -20,7 +20,7 @@ import {
   TrashIcon,
 } from "./icons";
 
-const SYNC_DEBOUNCE_MS = 30_000;
+const SYNC_DEBOUNCE_MS = 5_000;
 type SaveStatus = "saved" | "editing" | "syncing" | "failed";
 
 const FONT_STEPS = [10, 12, 14, 16, 18, 20, 24, 28, 32, 40, 48];
@@ -1354,7 +1354,7 @@ function SyncBadge({
     return (
       <span
         className={`${base} bg-[var(--surface-2)] text-[var(--muted)]`}
-        title="You have unsaved changes — syncing in 30s"
+        title="You have unsaved changes — syncing in 5s"
       >
         <span className="inline-block size-1.5 rounded-full bg-[var(--accent)] animate-pulse" />
         Editing…
