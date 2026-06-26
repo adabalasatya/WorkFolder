@@ -363,7 +363,24 @@ export default function Sidebar() {
   };
 
   const rootFolders = childrenOf(null);
-  const visibleRoots = rootFolders.filter((f) => folderMatches(f, search));
+  // If the user has a folder selected (in any of the folder-scoped views),
+  // collapse the sidebar tree to just the *root ancestor* of that folder
+  // so other root branches stay out of the way. Falls back to every root
+  // when no folder is selected (dashboard, planner, etc.).
+  const selectedRoot = (() => {
+    if (!state.currentFolderId) return null;
+    let cur = state.folders.find((f) => f.id === state.currentFolderId);
+    const seen = new Set<string>();
+    while (cur?.parentId && !seen.has(cur.id)) {
+      seen.add(cur.id);
+      const next = state.folders.find((x) => x.id === cur!.parentId);
+      if (!next) break;
+      cur = next;
+    }
+    return cur ?? null;
+  })();
+  const focusedRoots = selectedRoot ? [selectedRoot] : rootFolders;
+  const visibleRoots = focusedRoots.filter((f) => folderMatches(f, search));
 
   const newFolderLabel =
     state.view === "folder" && state.currentFolderId
