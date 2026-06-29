@@ -171,7 +171,7 @@ export default function Auth() {
           </button>
           <button
             onClick={() => setShowSignIn(true)}
-            className="px-4 py-1.5 rounded-full bg-[var(--accent)] text-white font-medium hover:opacity-90 transition"
+            className="px-4 py-1.5 rounded-full bg-[var(--foreground)] text-[var(--surface)] font-medium hover:opacity-90 transition"
           >
             Sign in
           </button>
@@ -196,7 +196,7 @@ export default function Auth() {
         <div className="mt-9 flex flex-col sm:flex-row items-center justify-center gap-3">
           <button
             onClick={() => setShowSignIn(true)}
-            className="flex items-center gap-2.5 rounded-full bg-[var(--accent)] text-white px-6 py-3 text-sm font-medium shadow-sm hover:opacity-90 transition"
+            className="flex items-center gap-2.5 rounded-full bg-[var(--foreground)] text-[var(--surface)] px-6 py-3 text-sm font-medium shadow-sm hover:opacity-90 transition"
           >
             <GoogleIcon size={18} />
             Get started with Google

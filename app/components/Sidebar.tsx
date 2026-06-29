@@ -92,11 +92,15 @@ export default function Sidebar() {
   const search = state.search.toLowerCase();
   const overall = selectOverallStats(state);
 
+  // A folder is considered "selected" for the New-Subfolder action when
+  // the user is anywhere inside a folder context — folder view OR while
+  // editing a note inside that folder.
+  const insideFolderContext =
+    (state.view === "folder" || state.view === "editor") &&
+    !!state.currentFolderId;
+
   const startCreate = () => {
-    const parentId =
-      state.view === "folder" && state.currentFolderId
-        ? state.currentFolderId
-        : null;
+    const parentId = insideFolderContext ? state.currentFolderId : null;
     if (parentId) setOpen((o) => ({ ...o, [parentId]: true }));
     setCreating({ parentId });
     setNewName("");
@@ -171,7 +175,7 @@ export default function Sidebar() {
         >
           <FolderPlusIcon size={16} />
         </button>
-        <div className="mt-auto size-9 rounded-full bg-[var(--accent)] grid place-items-center text-white text-sm font-semibold">
+        <div className="mt-auto size-9 rounded-full bg-[var(--foreground)] grid place-items-center text-[var(--surface)] text-sm font-semibold">
           {userInitial}
         </div>
       </aside>
@@ -435,10 +439,9 @@ export default function Sidebar() {
   const focusedRoots = selectedRoot ? [selectedRoot] : rootFolders;
   const visibleRoots = focusedRoots.filter((f) => folderMatches(f, search));
 
-  const newFolderLabel =
-    state.view === "folder" && state.currentFolderId
-      ? "+ New Subfolder"
-      : "+ New Folder";
+  const newFolderLabel = insideFolderContext
+    ? "+ New Subfolder"
+    : "+ New Folder";
 
   return (
     <aside className="h-screen w-72 shrink-0 flex flex-col border-r border-[var(--border)] bg-[var(--surface)] p-3">
@@ -542,7 +545,7 @@ export default function Sidebar() {
         ref={settingsRef}
         className="relative mt-2 -mx-1 px-3 py-3 border-t border-[var(--border)] flex items-center gap-3"
       >
-        <div className="size-10 rounded-full bg-[var(--accent)] grid place-items-center text-white font-semibold shrink-0">
+        <div className="size-10 rounded-full bg-[var(--foreground)] grid place-items-center text-[var(--surface)] font-semibold shrink-0">
           {userInitial}
         </div>
         <div className="leading-tight min-w-0 flex-1">
@@ -572,7 +575,7 @@ export default function Sidebar() {
         {settingsOpen && user && (
           <div className="absolute bottom-full left-3 right-3 mb-2 rounded-xl border border-[var(--border)] bg-[var(--surface)] shadow-lg p-1.5 z-20">
             <div className="flex items-center gap-2.5 px-2 py-2">
-              <div className="size-8 rounded-full bg-[var(--accent)] grid place-items-center text-white text-xs font-semibold shrink-0">
+              <div className="size-8 rounded-full bg-[var(--foreground)] grid place-items-center text-[var(--surface)] text-xs font-semibold shrink-0">
                 {userInitial}
               </div>
               <div className="text-sm font-medium truncate capitalize">

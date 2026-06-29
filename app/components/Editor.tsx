@@ -1292,7 +1292,7 @@ function TbButton({
       onClick={onClick}
       className={`min-w-7 h-7 px-2 rounded-md text-xs grid place-items-center transition ${
         active
-          ? "bg-[var(--accent)] text-white shadow-sm"
+          ? "bg-[var(--foreground)] text-[var(--surface)] shadow-sm"
           : "text-[var(--muted)] hover:text-[var(--foreground)] hover:bg-[var(--surface-2)]"
       }`}
     >
