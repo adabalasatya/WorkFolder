@@ -120,6 +120,7 @@ export type Action =
     }
   | { type: "SET_SEARCH"; payload: string }
   | { type: "SET_VIEW_MODE"; payload: "grid" | "list" }
+  | { type: "TICK_STREAK" }
   | {
       type: "ADD_TASK";
       payload: {
@@ -427,6 +428,11 @@ function reducer(state: AppState, action: Action): AppState {
 
     case "SET_VIEW_MODE":
       return { ...state, viewMode: action.payload };
+
+    case "TICK_STREAK":
+      // Idempotent — tickStreak is a no-op once the streak has already
+      // been counted for today, so it's safe to dispatch this repeatedly.
+      return { ...state, streak: tickStreak(state.streak) };
 
     case "ADD_TASK": {
       const now = Date.now();

@@ -15,6 +15,7 @@ import {
   SpeakerIcon,
   TimerIcon,
 } from "./icons";
+import { useStore } from "../lib/store";
 
 type Mode = "focus" | "shortBreak" | "longBreak";
 
@@ -44,6 +45,42 @@ const DEFAULTS: Settings = {
 
 const STORAGE_KEY = "noteflow_pomodoro_settings";
 const SOUNDS = ["chime", "bell", "digital", "kitchen"];
+
+// --- Daily focus-time tracking (for streak) ---
+//
+// The streak ticks when the user accumulates 30 minutes of focus time in
+// a day. We keep a `{date, seconds}` record in localStorage so partial
+// sessions (start / pause / resume) all count toward the same daily
+// total. Rolls over at midnight.
+const FOCUS_STORAGE = "noteflow_focus_time";
+const STREAK_FOCUS_THRESHOLD_SEC = 30 * 60;
+
+type FocusRecord = { date: string; seconds: number };
+
+function todayIso(): string {
+  return new Date().toISOString().slice(0, 10);
+}
+
+function loadFocus(): FocusRecord {
+  const today = todayIso();
+  if (typeof window === "undefined") return { date: today, seconds: 0 };
+  try {
+    const raw = localStorage.getItem(FOCUS_STORAGE);
+    if (!raw) return { date: today, seconds: 0 };
+    const parsed = JSON.parse(raw) as FocusRecord;
+    if (parsed.date !== today) return { date: today, seconds: 0 };
+    return parsed;
+  } catch {
+    return { date: today, seconds: 0 };
+  }
+}
+
+function saveFocus(rec: FocusRecord) {
+  if (typeof window === "undefined") return;
+  try {
+    localStorage.setItem(FOCUS_STORAGE, JSON.stringify(rec));
+  } catch {}
+}
 
 function fmt(sec: number): string {
   const m = Math.floor(sec / 60);
@@ -153,6 +190,7 @@ function modeSeconds(mode: Mode, s: Settings): number {
 }
 
 export default function PomodoroTimer() {
+  const { dispatch } = useStore();
   const [settings, setSettings] = useState<Settings>(DEFAULTS);
   const [mode, setMode] = useState<Mode>("focus");
   const [remaining, setRemaining] = useState<number>(DEFAULTS.focusMin * 60);
@@ -160,6 +198,12 @@ export default function PomodoroTimer() {
   const [completedFocus, setCompletedFocus] = useState(0);
   const [open, setOpen] = useState(false);
   const buttonRef = useRef<HTMLButtonElement | null>(null);
+
+  // Running total of focus seconds for TODAY, mirrored in localStorage.
+  const focusSecsRef = useRef(0);
+  useEffect(() => {
+    focusSecsRef.current = loadFocus().seconds;
+  }, []);
   const [pos, setPos] = useState<{
     top: number;
     left: number;
@@ -185,14 +229,38 @@ export default function PomodoroTimer() {
     if (!running) setRemaining(modeSeconds(mode, settings));
   }, [settings, mode, running]);
 
-  // Countdown tick.
+  // Countdown tick. While the user is in a focus session we also credit
+  // 1 second of daily focus time; the streak is ticked once the daily
+  // total reaches 30 minutes (idempotent — the store guards it too).
   useEffect(() => {
     if (!running) return;
     const id = window.setInterval(() => {
+      if (mode === "focus") {
+        // Roll over on date change so partials never leak into a new day.
+        const today = todayIso();
+        const rec = loadFocus();
+        if (rec.date !== today) focusSecsRef.current = 0;
+        focusSecsRef.current += 1;
+        // Persist every 10s (cheap and resilient across reloads).
+        if (focusSecsRef.current % 10 === 0) {
+          saveFocus({ date: today, seconds: focusSecsRef.current });
+        }
+        // Crossing the 30-minute mark → tick the streak once for today.
+        if (focusSecsRef.current === STREAK_FOCUS_THRESHOLD_SEC) {
+          saveFocus({ date: today, seconds: focusSecsRef.current });
+          dispatch({ type: "TICK_STREAK" });
+        }
+      }
       setRemaining((r) => (r > 0 ? r - 1 : 0));
     }, 1000);
-    return () => window.clearInterval(id);
-  }, [running]);
+    return () => {
+      window.clearInterval(id);
+      // Flush the current focus count on pause so we don't lose the tail.
+      if (mode === "focus") {
+        saveFocus({ date: todayIso(), seconds: focusSecsRef.current });
+      }
+    };
+  }, [running, mode, dispatch]);
 
   // End-of-session handling.
   useEffect(() => {
