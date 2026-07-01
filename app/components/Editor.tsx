@@ -477,7 +477,7 @@ export default function Editor() {
 
     const pre = document.createElement("pre");
     const code = document.createElement("code");
-    code.textContent = "# program";
+    code.textContent = "#";
     pre.appendChild(code);
 
     const trailing = document.createElement("p");
@@ -501,7 +501,7 @@ export default function Editor() {
       el.appendChild(trailing);
     }
 
-    // Caret at end of "# program" so the user can keep typing.
+    // Caret at end of "#" so the user can keep typing right after it.
     const textNode = code.firstChild as Text | null;
     const range = document.createRange();
     if (textNode) {
@@ -519,9 +519,13 @@ export default function Editor() {
   }, [flush, updateFormats]);
 
   /* --- Lists — checkbox / radio / bullet / numbered.
-         If the caret is already inside a list, CONVERT the existing list
-         to the new type in place (preserving items + caret). Otherwise
-         insert a fresh list. --- */
+         Behaviour rules:
+           • Tapping the *same* kind while already in that list → REMOVE
+             it (unwrap items into paragraphs — toggle-off).
+           • Tapping a *different* list kind → convert in place.
+           • With a multi-line selection and no current list → wrap all
+             selected lines in the requested list.
+           • Otherwise → insert a fresh single-item list. --- */
   const insertList = useCallback(
     (kind: "cb" | "rb" | "ul" | "ol") => {
       const el = editorRef.current;
@@ -544,22 +548,51 @@ export default function Editor() {
         }
       }
 
-      // Already in a list — convert in place, regardless of source/target.
+      // Already in a list.
       if (currentList) {
-        convertListInPlace(currentList, kind);
+        const currentKind = detectListKind(currentList);
+        if (currentKind === kind) {
+          // Toggle OFF — unwrap items back into paragraphs.
+          unwrapList(currentList);
+        } else {
+          convertListInPlace(currentList, kind);
+        }
         flush();
         updateFormats();
         return;
       }
 
-      // Not in a list — insert a fresh one of the requested kind.
+      // Not in a list — plain bullet / numbered handle multi-line
+      // selection natively via execCommand.
       if (kind === "ul" || kind === "ol") {
         exec(
           kind === "ul" ? "insertUnorderedList" : "insertOrderedList"
         );
         return;
       }
+
+      // Checkbox / radio — piggy-back on execCommand for multi-line
+      // handling, then swap the resulting <ul> class to our custom
+      // marker.
       const cls = kind === "cb" ? "cb-list" : "rb-list";
+      const hasSelection =
+        sel && sel.rangeCount > 0 && !sel.getRangeAt(0).collapsed;
+      if (hasSelection) {
+        document.execCommand("insertUnorderedList");
+        const after = window.getSelection();
+        const afterNode =
+          after && after.rangeCount > 0 ? after.anchorNode : null;
+        const afterEl = afterNode
+          ? elNodeFromSelection(afterNode)
+          : null;
+        const madeUl = afterEl?.closest("ul") as HTMLElement | null;
+        if (madeUl) madeUl.className = cls;
+        flush();
+        updateFormats();
+        return;
+      }
+
+      // No selection → fresh single-item list.
       const html = `<ul class="${cls}"><li data-caret="1"><br></li></ul><p><br></p>`;
       document.execCommand("insertHTML", false, html);
       const li = el.querySelector('li[data-caret="1"]');
@@ -874,7 +907,10 @@ export default function Editor() {
 
   return (
     <div className="flex flex-col h-full fade-in">
-      <div className="px-8 pt-6">
+      {/* Sticky editor header — action row + format toolbar stay pinned to
+          the top of the workspace so you never have to scroll up to reach
+          a formatting button. */}
+      <div className="sticky top-0 z-20 px-8 pt-6 pb-3 bg-[var(--background)] border-b border-[var(--border)]">
         <div className="flex items-center gap-3 mb-3">
           <button
             onClick={() =>
@@ -945,10 +981,6 @@ export default function Editor() {
           wordCount={wordCount}
         />
 
-        <div
-          className="h-0.5 w-full rounded-full mt-3"
-          style={{ background: "var(--border)", opacity: 1 }}
-        />
       </div>
 
       <div
@@ -1001,6 +1033,31 @@ function placeCaretIn(el: HTMLElement) {
  * Caret position is saved and restored explicitly because some browsers
  * detach the selection when `replaceChild` mutates the DOM.
  */
+/** Which of our four list kinds does this <ul>/<ol> represent? */
+function detectListKind(
+  list: HTMLElement
+): "cb" | "rb" | "ul" | "ol" {
+  if (list.tagName.toLowerCase() === "ol") return "ol";
+  if (list.classList.contains("cb-list")) return "cb";
+  if (list.classList.contains("rb-list")) return "rb";
+  return "ul";
+}
+
+/** Toggle a list off by replacing it with paragraphs — one per <li>. */
+function unwrapList(list: HTMLElement) {
+  const parent = list.parentNode;
+  if (!parent) return;
+  const frag = document.createDocumentFragment();
+  Array.from(list.children).forEach((child) => {
+    if (!(child instanceof HTMLElement)) return;
+    const p = document.createElement("p");
+    while (child.firstChild) p.appendChild(child.firstChild);
+    if (!p.firstChild) p.appendChild(document.createElement("br"));
+    frag.appendChild(p);
+  });
+  parent.replaceChild(frag, list);
+}
+
 function convertListInPlace(
   list: HTMLElement,
   kind: "cb" | "rb" | "ul" | "ol"

@@ -24,7 +24,10 @@ function Workspace() {
   // animation replays — giving a small transition between screens.
   return (
     <main className="flex-1 min-w-0 flex flex-col h-screen relative">
-      <TopBar />
+      {/* Hide the workspace top bar while writing — the editor has its
+          own sticky header with Back/Save/Delete, so hiding this frees
+          up ~60px of vertical space. */}
+      {state.view !== "editor" && <TopBar />}
       <div className="flex-1 min-h-0 overflow-y-auto">
         <div key={state.view} className="view-fade min-h-full">
           {state.view === "dashboard" && <Dashboard />}
