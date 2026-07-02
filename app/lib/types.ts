@@ -35,6 +35,7 @@ export type RepeatKind = "once" | "daily" | "weekly";
 export interface Task {
   id: string;
   title: string;
+  description?: string;
   startDate: string; // YYYY-MM-DD
   time?: string; // HH:MM (24h)
   repeat: RepeatKind;

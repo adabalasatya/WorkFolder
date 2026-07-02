@@ -125,9 +125,11 @@ export type Action =
       type: "ADD_TASK";
       payload: {
         title: string;
+        description?: string;
         startDate: string;
         time?: string;
         repeat: RepeatKind;
+        weekdays?: number[];
         linkedFileId?: string | null;
         linkedFolderId?: string | null;
       };
@@ -139,6 +141,7 @@ export type Action =
       payload: {
         id: string;
         title?: string;
+        description?: string | null;
         startDate?: string;
         time?: string | undefined;
         repeat?: RepeatKind;
@@ -439,9 +442,11 @@ function reducer(state: AppState, action: Action): AppState {
       const task: Task = {
         id: newId(),
         title: action.payload.title.trim() || "Untitled task",
+        description: action.payload.description?.trim() || undefined,
         startDate: action.payload.startDate,
         time: action.payload.time,
         repeat: action.payload.repeat,
+        weekdays: action.payload.weekdays,
         linkedFileId: action.payload.linkedFileId ?? null,
         linkedFolderId: action.payload.linkedFolderId ?? null,
         completedDates: [],
@@ -466,9 +471,22 @@ function reducer(state: AppState, action: Action): AppState {
       };
 
     case "UPDATE_TASK": {
-      const { id, ...patch } = action.payload;
+      const { id, description, ...patch } = action.payload;
+      // Normalise the nullable description (payload allows null so the
+      // caller can clear it) into `Task.description`'s `string | undefined`.
+      const descriptionPatch: Pick<Task, "description"> | undefined =
+        description === undefined
+          ? undefined
+          : { description: description ?? undefined };
       const tasks = state.tasks.map((t) =>
-        t.id === id ? { ...t, ...patch, updatedAt: Date.now() } : t
+        t.id === id
+          ? {
+              ...t,
+              ...patch,
+              ...(descriptionPatch ?? {}),
+              updatedAt: Date.now(),
+            }
+          : t
       );
       // Re-evaluate auto-completion since the link may have just changed.
       const refreshed = applyAutoCompletion(tasks, state.folders, state.files);

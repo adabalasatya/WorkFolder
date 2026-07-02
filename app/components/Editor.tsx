@@ -21,6 +21,7 @@ import {
   DownloadIcon,
   TrashIcon,
 } from "./icons";
+import PomodoroTimer from "./PomodoroTimer";
 
 const SYNC_DEBOUNCE_MS = 5_000;
 type SaveStatus = "saved" | "editing" | "syncing" | "failed";
@@ -434,6 +435,9 @@ export default function Editor() {
       if (range.collapsed) {
         // No selection — drop a sized empty span at the caret with a
         // zero-width space so the browser keeps the caret inside it.
+        // Inserting *at* the caret means the span becomes a child of
+        // the current inline parent (e.g. <b>), so bold/italic state
+        // are preserved for anything the user types next.
         const zws = document.createTextNode("​");
         span.appendChild(zws);
         range.insertNode(span);
@@ -447,10 +451,19 @@ export default function Editor() {
         return;
       }
 
+      // For a real selection: prefer `surroundContents` — it wraps the
+      // range in the new span WITHOUT stripping the surrounding inline
+      // tags, so a selection entirely inside <b> stays inside <b> after
+      // the resize. Fall back to extract+wrap only when the range
+      // straddles element boundaries and surroundContents throws.
       try {
-        const contents = range.extractContents();
-        span.appendChild(contents);
-        range.insertNode(span);
+        try {
+          range.surroundContents(span);
+        } catch {
+          const contents = range.extractContents();
+          span.appendChild(contents);
+          range.insertNode(span);
+        }
         const newRange = document.createRange();
         newRange.selectNodeContents(span);
         sel.removeAllRanges();
@@ -910,7 +923,7 @@ export default function Editor() {
       {/* Sticky editor header — action row + format toolbar stay pinned to
           the top of the workspace so you never have to scroll up to reach
           a formatting button. */}
-      <div className="sticky top-0 z-20 px-8 pt-6 pb-3 bg-[var(--background)] border-b border-[var(--border)]">
+      <div className="relative sticky top-0 z-20 px-8 pt-6 pb-3 bg-[var(--background)] border-b border-[var(--border)]">
         <div className="flex items-center gap-3 mb-3">
           <button
             onClick={() =>
@@ -924,6 +937,12 @@ export default function Editor() {
             <ChevronLeftIcon size={14} /> Files
           </button>
           <SyncBadge status={status} onRetry={retrySync} />
+          {/* Pomodoro timer — absolute-centered over the action row so
+              it always sits in the top-middle regardless of how long
+              the left / right button clusters get. */}
+          <div className="absolute left-1/2 top-6 -translate-x-1/2 z-10">
+            <PomodoroTimer />
+          </div>
           <div className="flex-1" />
           <button
             onClick={() =>

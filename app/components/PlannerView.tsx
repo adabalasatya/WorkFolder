@@ -8,7 +8,6 @@ import {
   CheckIcon,
   ChevronLeftIcon,
   ChevronRightIcon,
-  ClockIcon,
   LinkIcon,
   PlusIcon,
   TrashIcon,
@@ -64,6 +63,7 @@ export default function PlannerView() {
     return ymd(t);
   });
   const [adding, setAdding] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
 
   const STRIP_DAYS = 7;
   const stripDates = useMemo(() => {
@@ -215,20 +215,7 @@ export default function PlannerView() {
                     payload: { id: task.id, date: selectedDate },
                   })
                 }
-                onSnooze={() =>
-                  dispatch({
-                    type: "UPDATE_TASK",
-                    payload: {
-                      id: task.id,
-                      startDate: shiftDays(
-                        task.startDate >= selectedDate
-                          ? task.startDate
-                          : selectedDate,
-                        1
-                      ),
-                    },
-                  })
-                }
+                onEdit={() => setEditingId(task.id)}
                 onDelete={() =>
                   dispatch({ type: "DELETE_TASK", payload: { id: task.id } })
                 }
@@ -258,6 +245,7 @@ export default function PlannerView() {
                         payload: { id: task.id, date: selectedDate },
                       })
                     }
+                    onEdit={() => setEditingId(task.id)}
                     onDelete={() =>
                       dispatch({
                         type: "DELETE_TASK",
@@ -282,6 +270,35 @@ export default function PlannerView() {
           }}
         />
       )}
+
+      {editingId &&
+        (() => {
+          const task = state.tasks.find((t) => t.id === editingId);
+          if (!task) return null;
+          return (
+            <AddTaskModal
+              defaultDate={task.startDate}
+              existing={task}
+              onClose={() => setEditingId(null)}
+              onSubmit={(p) => {
+                dispatch({
+                  type: "UPDATE_TASK",
+                  payload: {
+                    id: task.id,
+                    title: p.title,
+                    description: p.description ?? null,
+                    startDate: p.startDate,
+                    time: p.time,
+                    repeat: p.repeat,
+                    linkedFileId: p.linkedFileId,
+                    linkedFolderId: p.linkedFolderId,
+                  },
+                });
+                setEditingId(null);
+              }}
+            />
+          );
+        })()}
     </div>
   );
 }
@@ -290,13 +307,16 @@ export default function PlannerView() {
 
 function AddTaskModal({
   defaultDate,
+  existing,
   onClose,
   onSubmit,
 }: {
   defaultDate: string;
+  existing?: Task;
   onClose: () => void;
   onSubmit: (p: {
     title: string;
+    description?: string;
     startDate: string;
     time?: string;
     repeat: RepeatKind;
@@ -332,14 +352,18 @@ function AddTaskModal({
         onClick={(e) => e.stopPropagation()}
         role="dialog"
         aria-modal="true"
-        aria-label="New task"
+        aria-label={existing ? "Edit task" : "New task"}
       >
         {/* Header — fixed */}
         <header className="shrink-0 px-6 py-5 border-b border-[var(--border)] flex items-center justify-between">
           <div>
-            <h2 className="text-xl font-bold tracking-tight">New task</h2>
+            <h2 className="text-xl font-bold tracking-tight">
+              {existing ? "Edit task" : "New task"}
+            </h2>
             <p className="text-xs text-[var(--muted)] mt-0.5">
-              Schedule something for {prettyDate(defaultDate)}
+              {existing
+                ? "Update the details below"
+                : `Schedule something for ${prettyDate(defaultDate)}`}
             </p>
           </div>
           <button
@@ -355,6 +379,7 @@ function AddTaskModal({
         <div className="flex-1 overflow-y-auto px-6 py-5">
           <AddTaskForm
             defaultDate={defaultDate}
+            existing={existing}
             onSubmit={onSubmit}
             registerSubmit={(fn) => {
               submitRef.current = fn;
@@ -378,11 +403,30 @@ function AddTaskModal({
             disabled={!canSubmit}
             className="inline-flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium bg-[var(--foreground)] text-[var(--surface)] disabled:opacity-40 disabled:cursor-not-allowed transition"
           >
-            <PlusIcon size={13} /> Create task
+            <PlusIcon size={13} />
+            {existing ? "Save changes" : "Create task"}
           </button>
         </div>
       </div>
     </div>
+  );
+}
+
+function PencilGlyph() {
+  return (
+    <svg
+      width={13}
+      height={13}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={2}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <path d="M12 20h9" />
+      <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4z" />
+    </svg>
   );
 }
 
@@ -434,18 +478,17 @@ function TaskRow({
   date,
   done,
   onToggle,
-  onSnooze,
+  onEdit,
   onDelete,
 }: {
   task: Task;
   date: string;
   done: boolean;
   onToggle: () => void;
-  onSnooze?: () => void;
+  onEdit: () => void;
   onDelete: () => void;
 }) {
-  const { state, dispatch } = useStore();
-  const isLinked = !!(task.linkedFileId || task.linkedFolderId);
+  const { dispatch } = useStore();
   const autoCompleted = done && task.autoCompletedDates.includes(date);
 
   return (
@@ -475,9 +518,6 @@ function TaskRow({
         </div>
         <div className="mt-1 flex items-center gap-2 text-xs text-[var(--muted)] flex-wrap">
           {done ? (
-            /* Completed state — collapse repeat + time into a single
-               completion badge. Auto-completed tasks get the "Auto-..."
-               label, manual ones get plain "Completed". */
             <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-[var(--surface-2)] text-[var(--foreground)] text-[10px] font-medium">
               <CheckCircleGlyph />
               {autoCompleted ? "Auto-completed" : "Completed"}
@@ -496,29 +536,33 @@ function TaskRow({
               )}
             </>
           )}
-          {isLinked && (
-            <LinkedBadge
-              task={task}
-              onChange={(linkedFileId, linkedFolderId) =>
-                dispatch({
-                  type: "UPDATE_TASK",
-                  payload: { id: task.id, linkedFileId, linkedFolderId },
-                })
-              }
-            />
-          )}
+          {/* Link badge is always visible now — even when nothing is
+              linked, the pill reads "Not linked" and tapping it opens
+              the same picker so the user can attach one later. */}
+          <LinkedBadge
+            task={task}
+            onChange={(linkedFileId, linkedFolderId) =>
+              dispatch({
+                type: "UPDATE_TASK",
+                payload: { id: task.id, linkedFileId, linkedFolderId },
+              })
+            }
+          />
         </div>
+        {task.description && (
+          <p className="mt-2 text-xs text-[var(--muted)] leading-relaxed whitespace-pre-line">
+            {task.description}
+          </p>
+        )}
       </div>
-      {onSnooze && !done && (
-        <button
-          onClick={onSnooze}
-          className="shrink-0 p-1.5 rounded-lg text-[var(--muted)] opacity-0 group-hover:opacity-100 hover:text-[var(--foreground)] hover:bg-[var(--surface-2)] transition"
-          aria-label="Snooze to tomorrow"
-          title="Snooze to tomorrow"
-        >
-          <ClockIcon size={13} />
-        </button>
-      )}
+      <button
+        onClick={onEdit}
+        className="shrink-0 p-1.5 rounded-lg text-[var(--muted)] opacity-0 group-hover:opacity-100 hover:text-[var(--foreground)] hover:bg-[var(--surface-2)] transition"
+        aria-label="Edit task"
+        title="Edit task"
+      >
+        <PencilGlyph />
+      </button>
       <button
         onClick={onDelete}
         className="shrink-0 p-1.5 rounded-lg text-[var(--muted)] opacity-0 group-hover:opacity-100 hover:text-[var(--danger)] hover:bg-[var(--surface-2)] transition"
@@ -588,11 +632,12 @@ function LinkedBadge({
   const linkedFolder = task.linkedFolderId
     ? state.folders.find((f) => f.id === task.linkedFolderId)
     : null;
+  const isLinked = !!(linkedFile || linkedFolder);
   const tooltip = linkedFile
     ? `${folderPath(linkedFile.folderId)} / ${linkedFile.title.replace(/\.md$/i, "")}`
     : linkedFolder
     ? folderPath(linkedFolder.id)
-    : "Linked";
+    : "Tap to link a folder or file";
 
   const matches = (label: string) =>
     !search || label.toLowerCase().includes(search.toLowerCase());
@@ -603,10 +648,14 @@ function LinkedBadge({
         type="button"
         onClick={() => setOpen((v) => !v)}
         title={tooltip}
-        className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-[var(--surface-2)] text-[var(--foreground)] text-[10px] font-medium hover:bg-[var(--surface-3,var(--surface-2))] transition"
+        className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium transition ${
+          isLinked
+            ? "bg-[var(--surface-2)] text-[var(--foreground)] hover:bg-[var(--surface-3,var(--surface-2))]"
+            : "border border-dashed border-[var(--border)] text-[var(--muted)] hover:text-[var(--foreground)] hover:bg-[var(--surface-2)]"
+        }`}
       >
         <LinkIcon size={10} />
-        Linked
+        {isLinked ? "Linked" : "Not linked"}
       </button>
       {open && (
         <div className="absolute left-0 top-full mt-1 w-72 max-h-72 overflow-y-auto rounded-xl border border-[var(--border)] bg-[var(--surface)] shadow-lg z-30 p-1.5">
@@ -692,13 +741,16 @@ function LinkedBadge({
 
 function AddTaskForm({
   defaultDate,
+  existing,
   onSubmit,
   registerSubmit,
   onValidChange,
 }: {
   defaultDate: string;
+  existing?: Task;
   onSubmit: (p: {
     title: string;
+    description?: string;
     startDate: string;
     time?: string;
     repeat: RepeatKind;
@@ -709,13 +761,22 @@ function AddTaskForm({
   onValidChange?: (valid: boolean) => void;
 }) {
   const { state } = useStore();
-  const [title, setTitle] = useState("");
-  const [time, setTime] = useState("");
-  const [repeat, setRepeat] = useState<RepeatKind>("once");
+  const [title, setTitle] = useState(existing?.title ?? "");
+  const [description, setDescription] = useState(
+    existing?.description ?? ""
+  );
+  const [time, setTime] = useState(existing?.time ?? "");
+  const [repeat, setRepeat] = useState<RepeatKind>(
+    existing?.repeat ?? "once"
+  );
   const [linkOpen, setLinkOpen] = useState(false);
   const [linkSearch, setLinkSearch] = useState("");
-  const [linkedFileId, setLinkedFileId] = useState<string | null>(null);
-  const [linkedFolderId, setLinkedFolderId] = useState<string | null>(null);
+  const [linkedFileId, setLinkedFileId] = useState<string | null>(
+    existing?.linkedFileId ?? null
+  );
+  const [linkedFolderId, setLinkedFolderId] = useState<string | null>(
+    existing?.linkedFolderId ?? null
+  );
   const linkRef = useRef<HTMLDivElement | null>(null);
   const linkBtnRef = useRef<HTMLButtonElement | null>(null);
   const [pickerPos, setPickerPos] = useState<{
@@ -780,7 +841,8 @@ function AddTaskForm({
     if (!title.trim()) return;
     onSubmit({
       title,
-      startDate: defaultDate,
+      description: description.trim() || undefined,
+      startDate: existing?.startDate ?? defaultDate,
       time: time || undefined,
       repeat,
       linkedFileId,
@@ -795,7 +857,7 @@ function AddTaskForm({
     onValidChange?.(title.trim().length > 0);
     // submit closes over local state; re-register on every change.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [title, time, repeat, linkedFileId, linkedFolderId]);
+  }, [title, description, time, repeat, linkedFileId, linkedFolderId]);
 
   return (
     <div className="flex flex-col gap-5">
@@ -809,6 +871,16 @@ function AddTaskForm({
           }}
           placeholder="What do you want to get done?"
           className="w-full bg-[var(--surface)] border border-[var(--border)] rounded-xl px-3.5 py-2.5 text-sm outline-none focus:ring-2 focus:ring-[var(--accent)]"
+        />
+      </Field>
+
+      <Field label="Description (optional)">
+        <textarea
+          value={description}
+          onChange={(e) => setDescription(e.target.value)}
+          rows={3}
+          placeholder="Add any details, links or context…"
+          className="w-full bg-[var(--surface)] border border-[var(--border)] rounded-xl px-3.5 py-2.5 text-sm outline-none focus:ring-2 focus:ring-[var(--accent)] resize-y min-h-[72px]"
         />
       </Field>
 
